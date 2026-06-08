@@ -39,13 +39,13 @@ interface ConveyorBall {
 
 const GAME_WIDTH = 540;
 const GAME_HEIGHT = 960;
-const BOARD_SIZE = 404;
+const BOARD_SIZE = 428;
 const CELL_SIZE = BOARD_SIZE / GRID_COLS;
-const BOARD_ORIGIN = { x: (GAME_WIDTH - BOARD_SIZE) / 2, y: 244 };
+const BOARD_ORIGIN = { x: (GAME_WIDTH - BOARD_SIZE) / 2, y: 228 };
 const CONVEYOR_OFFSET = 22;
 const FUNNEL_CENTER = { x: GAME_WIDTH / 2, y: 180 };
 const FUNNEL_FLOOR_Y = BOARD_ORIGIN.y - CONVEYOR_OFFSET - 4;
-const SWIPE_THRESHOLD = 18;
+const SWIPE_THRESHOLD = 10;
 const CHAIN_WINDOW_MS = 900;
 const QUEUE_PREVIEW_COUNT = 5;
 const BUTTON_WIDTH = 180;
@@ -54,6 +54,7 @@ const SPEED_OPTIONS = [1, 1.5, 2, 3];
 const CONVEYOR_ENTRY_INDEX = Math.floor(GRID_COLS / 2);
 const BOTTOM_PANEL_Y = 894;
 const BOTTOM_BUTTON_Y = 892;
+const CRATE_MOVE_DURATION_MS = 110;
 
 export class GameScene extends Phaser.Scene {
   private currentLevelIndex = 0;
@@ -125,6 +126,7 @@ export class GameScene extends Phaser.Scene {
     this.updateBeltMarkers(time);
     this.updateConveyorBalls(delta);
     this.updateDropBallVisual();
+    this.ensureDropBallResolves();
 
     if (this.phase === 'play' && this.dropBall === undefined && this.dropColorQueueIndex >= this.currentLevel.queue.length && this.conveyorBalls.length === 0 && countCrates(this.grid) > 0) {
       this.failLevel('The queue ran dry before the board was cleared.');
@@ -520,6 +522,7 @@ export class GameScene extends Phaser.Scene {
     );
     this.dropBall.setDragX(220 / this.speedMultiplier);
     this.dropBall.setGravityY(250 * (this.speedMultiplier - 1));
+    this.dropBall.setMaxVelocity(120, 420 * this.speedMultiplier);
     this.physics.add.collider(this.dropBall, this.landingPad, () => this.landDropBall(), undefined, this);
 
     this.tweens.add({
@@ -711,12 +714,12 @@ export class GameScene extends Phaser.Scene {
         targets: view.container,
         x: center.x,
         y: center.y,
-        duration: 160,
-        ease: 'cubic.out',
+        duration: CRATE_MOVE_DURATION_MS,
+        ease: 'quad.out',
       });
     });
 
-    this.time.delayedCall(180, () => {
+    this.time.delayedCall(CRATE_MOVE_DURATION_MS + 25, () => {
       this.busy = false;
       this.updateHud();
     });
@@ -1172,6 +1175,23 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.dropBall.setTint(COLORS[this.dropBallColor].fill);
+  }
+
+  private ensureDropBallResolves(): void {
+    if (!this.dropBall || !this.dropBallColor) {
+      return;
+    }
+
+    const velocityY = this.dropBall.body.velocity.y;
+    const reachedFunnelFloor = this.dropBall.y >= FUNNEL_FLOOR_Y - 6 && velocityY >= 0;
+    const escapedBounds =
+      this.dropBall.y > GAME_HEIGHT + 24 ||
+      this.dropBall.x < -24 ||
+      this.dropBall.x > GAME_WIDTH + 24;
+
+    if (reachedFunnelFloor || escapedBounds) {
+      this.landDropBall();
+    }
   }
 
   private triggerHaptic(kind: 'light' | 'success' | 'error'): void {

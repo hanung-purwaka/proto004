@@ -32,14 +32,14 @@ export interface ColorDefinition {
 export const COLOR_ORDER: ColorKey[] = ['coral', 'cyan', 'gold', 'mint', 'plum', 'orange', 'indigo', 'lime'];
 
 export const COLORS: Record<ColorKey, ColorDefinition> = {
-  coral: { key: 'coral', label: 'Coral', fill: 0xf26b62, dark: 0xc84b45, glow: 0xffb0aa, light: 0xffece7 },
-  cyan: { key: 'cyan', label: 'Cyan', fill: 0x5bcdf9, dark: 0x2d86ca, glow: 0xa6eaff, light: 0xeefcff },
-  gold: { key: 'gold', label: 'Gold', fill: 0xf6c452, dark: 0xc18f1f, glow: 0xffe5a0, light: 0xfff7df },
-  mint: { key: 'mint', label: 'Mint', fill: 0x61d7a2, dark: 0x2b9f69, glow: 0xb7f5d8, light: 0xedfff5 },
-  plum: { key: 'plum', label: 'Plum', fill: 0xb776f5, dark: 0x7f44c9, glow: 0xe0c0ff, light: 0xf7efff },
-  orange: { key: 'orange', label: 'Orange', fill: 0xf08a3f, dark: 0xba5c18, glow: 0xffc89c, light: 0xfff0df },
-  indigo: { key: 'indigo', label: 'Indigo', fill: 0x6d7cff, dark: 0x3d49bb, glow: 0xc8d0ff, light: 0xf1f3ff },
-  lime: { key: 'lime', label: 'Lime', fill: 0xb6dc4f, dark: 0x769328, glow: 0xe0f6a4, light: 0xf9ffe4 },
+  coral: { key: 'coral', label: 'Coral', fill: 0xff5f6d, dark: 0xd93a48, glow: 0xffb7bf, light: 0xffeef0 },
+  cyan: { key: 'cyan', label: 'Cyan', fill: 0x28d7ff, dark: 0x0a8fca, glow: 0x9df2ff, light: 0xe9fdff },
+  gold: { key: 'gold', label: 'Gold', fill: 0xffc83d, dark: 0xd28d00, glow: 0xffe89b, light: 0xfff8df },
+  mint: { key: 'mint', label: 'Mint', fill: 0x35e59b, dark: 0x129c63, glow: 0xa9ffd8, light: 0xecfff7 },
+  plum: { key: 'plum', label: 'Plum', fill: 0xc965ff, dark: 0x8b28d1, glow: 0xe9b6ff, light: 0xfbebff },
+  orange: { key: 'orange', label: 'Orange', fill: 0xff8f1f, dark: 0xcc5b00, glow: 0xffc382, light: 0xfff0df },
+  indigo: { key: 'indigo', label: 'Indigo', fill: 0x6172ff, dark: 0x3240c5, glow: 0xc2cbff, light: 0xf0f3ff },
+  lime: { key: 'lime', label: 'Lime', fill: 0xb8f133, dark: 0x6fa700, glow: 0xe1ff9d, light: 0xf9ffe6 },
 };
 
 export const GRID_ROWS = 8;
