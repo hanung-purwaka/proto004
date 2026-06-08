@@ -1,4 +1,4 @@
-export type ColorKey = 'coral' | 'cyan' | 'gold' | 'mint' | 'plum';
+export type ColorKey = 'coral' | 'cyan' | 'gold' | 'mint' | 'plum' | 'orange' | 'indigo' | 'lime';
 export type GridCell = ColorKey | null;
 export type GridState = GridCell[][];
 
@@ -29,7 +29,7 @@ export interface ColorDefinition {
   light: number;
 }
 
-export const COLOR_ORDER: ColorKey[] = ['coral', 'cyan', 'gold', 'mint', 'plum'];
+export const COLOR_ORDER: ColorKey[] = ['coral', 'cyan', 'gold', 'mint', 'plum', 'orange', 'indigo', 'lime'];
 
 export const COLORS: Record<ColorKey, ColorDefinition> = {
   coral: { key: 'coral', label: 'Coral', fill: 0xf26b62, dark: 0xc84b45, glow: 0xffb0aa, light: 0xffece7 },
@@ -37,39 +37,30 @@ export const COLORS: Record<ColorKey, ColorDefinition> = {
   gold: { key: 'gold', label: 'Gold', fill: 0xf6c452, dark: 0xc18f1f, glow: 0xffe5a0, light: 0xfff7df },
   mint: { key: 'mint', label: 'Mint', fill: 0x61d7a2, dark: 0x2b9f69, glow: 0xb7f5d8, light: 0xedfff5 },
   plum: { key: 'plum', label: 'Plum', fill: 0xb776f5, dark: 0x7f44c9, glow: 0xe0c0ff, light: 0xf7efff },
+  orange: { key: 'orange', label: 'Orange', fill: 0xf08a3f, dark: 0xba5c18, glow: 0xffc89c, light: 0xfff0df },
+  indigo: { key: 'indigo', label: 'Indigo', fill: 0x6d7cff, dark: 0x3d49bb, glow: 0xc8d0ff, light: 0xf1f3ff },
+  lime: { key: 'lime', label: 'Lime', fill: 0xb6dc4f, dark: 0x769328, glow: 0xe0f6a4, light: 0xf9ffe4 },
 };
 
 export const GRID_ROWS = 8;
 export const GRID_COLS = 8;
 export const LEVEL_STORAGE_KEY = 'conveyor-color-puzzle-level';
 
-const parseCell = (cell: string): GridCell => {
-  if (cell === '.') {
-    return null;
-  }
-
-  if (cell === 'R') {
-    return 'coral';
-  }
-
-  if (cell === 'B') {
-    return 'cyan';
-  }
-
-  if (cell === 'Y') {
-    return 'gold';
-  }
-
-  if (cell === 'G') {
-    return 'mint';
-  }
-
-  if (cell === 'P') {
-    return 'plum';
-  }
-
-  return null;
+const SYMBOL_TO_COLOR: Record<string, ColorKey> = {
+  R: 'coral',
+  B: 'cyan',
+  Y: 'gold',
+  G: 'mint',
+  P: 'plum',
+  O: 'orange',
+  I: 'indigo',
+  L: 'lime',
 };
+
+const BASE_SYMBOL_ORDER = ['R', 'B', 'Y', 'G', 'P'] as const;
+const EXTENDED_SYMBOL_ORDER = ['R', 'B', 'Y', 'G', 'P', 'O', 'I', 'L'] as const;
+
+const parseCell = (cell: string): GridCell => SYMBOL_TO_COLOR[cell] ?? null;
 
 const makeGrid = (rows: string[]): GridState =>
   rows.map((row) => row.split('').map((cell) => parseCell(cell)));
@@ -123,10 +114,34 @@ const makeLayerQueue = (rows: string[]): ColorKey[] => {
   return queue;
 };
 
-const createLayout = (rows: string[]) => ({
-  board: makeGrid(rows),
-  queue: makeLayerQueue(rows),
-});
+const expandPaletteRows = (rows: string[], paletteSeed: number): string[] =>
+  rows.map((row, rowIndex) =>
+    row
+      .split('')
+      .map((cell, colIndex) => {
+        if (cell === '.') {
+          return cell;
+        }
+
+        const baseIndex = BASE_SYMBOL_ORDER.indexOf(cell as (typeof BASE_SYMBOL_ORDER)[number]);
+        if (baseIndex === -1) {
+          return cell;
+        }
+
+        const shift = (paletteSeed + rowIndex * 2 + colIndex * 3 + rowIndex * colIndex) % EXTENDED_SYMBOL_ORDER.length;
+        return EXTENDED_SYMBOL_ORDER[(baseIndex + shift) % EXTENDED_SYMBOL_ORDER.length];
+      })
+      .join(''),
+  );
+
+const createLayout = (rows: string[], paletteSeed: number) => {
+  const expandedRows = expandPaletteRows(rows, paletteSeed);
+
+  return {
+    board: makeGrid(expandedRows),
+    queue: makeLayerQueue(expandedRows),
+  };
+};
 
 export const levels: LevelDefinition[] = [
   {
@@ -141,7 +156,7 @@ export const levels: LevelDefinition[] = [
       'RBYGPRBY',
       'BYGPRBYG',
       'YGPRBYGP',
-    ]),
+    ], 1),
     conveyorSpeed: 2.05,
     spawnIntervalMs: 2200,
     maxLoopsPerBall: 6,
@@ -161,7 +176,7 @@ export const levels: LevelDefinition[] = [
       'GYPRBYGP',
       'PRBYGYPR',
       'BYGPRBYG',
-    ]),
+    ], 2),
     conveyorSpeed: 2.15,
     spawnIntervalMs: 2100,
     maxLoopsPerBall: 6,
@@ -181,7 +196,7 @@ export const levels: LevelDefinition[] = [
       'RBYGPRBY',
       'YGPRBYGP',
       'PRBYGPRB',
-    ]),
+    ], 3),
     conveyorSpeed: 2.15,
     spawnIntervalMs: 2100,
     maxLoopsPerBall: 6,
@@ -201,7 +216,7 @@ export const levels: LevelDefinition[] = [
       'RPGYBRPG',
       'BYRGPBYR',
       'GYBPRGYB',
-    ]),
+    ], 4),
     conveyorSpeed: 2.35,
     spawnIntervalMs: 1800,
     maxLoopsPerBall: 6,
@@ -220,7 +235,7 @@ export const levels: LevelDefinition[] = [
       'RGYPBRGY',
       'YPRBGYPR',
       'BRGYPRBG',
-    ]),
+    ], 5),
     conveyorSpeed: 2.25,
     spawnIntervalMs: 1900,
     maxLoopsPerBall: 6,
@@ -239,7 +254,7 @@ export const levels: LevelDefinition[] = [
       'RGBYPRGB',
       'BYGPRBYG',
       'GPRYGGPR',
-    ]),
+    ], 6),
     conveyorSpeed: 2.3,
     spawnIntervalMs: 1900,
     maxLoopsPerBall: 6,
@@ -258,7 +273,7 @@ export const levels: LevelDefinition[] = [
       'RPGYBRPG',
       'GYBRPGYB',
       'BYPGYBYP',
-    ]),
+    ], 7),
     conveyorSpeed: 2.45,
     spawnIntervalMs: 1750,
     maxLoopsPerBall: 6,
@@ -277,7 +292,7 @@ export const levels: LevelDefinition[] = [
       'GPYRBGPY',
       'RBGYPRBG',
       'YPRGBYPR',
-    ]),
+    ], 8),
     conveyorSpeed: 2.55,
     spawnIntervalMs: 1750,
     maxLoopsPerBall: 7,
@@ -296,7 +311,7 @@ export const levels: LevelDefinition[] = [
       'PRGYBPRG',
       'BYPRGBYP',
       'GPYRBGPY',
-    ]),
+    ], 9),
     conveyorSpeed: 2.65,
     spawnIntervalMs: 1650,
     maxLoopsPerBall: 7,
@@ -315,7 +330,7 @@ export const levels: LevelDefinition[] = [
       'RPGYBRPG',
       'YBGPRYBG',
       'GRPBYGRP',
-    ]),
+    ], 10),
     conveyorSpeed: 2.8,
     spawnIntervalMs: 1550,
     maxLoopsPerBall: 7,

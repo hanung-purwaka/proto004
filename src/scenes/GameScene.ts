@@ -52,6 +52,8 @@ const BUTTON_TOUCH_WIDTH = 150;
 const BUTTON_TOUCH_HEIGHT = 58;
 const SPEED_OPTIONS = [1, 1.5, 2, 3];
 const CONVEYOR_ENTRY_INDEX = Math.floor(GRID_COLS / 2);
+const BOTTOM_PANEL_Y = 894;
+const BOTTOM_BUTTON_Y = 892;
 
 export class GameScene extends Phaser.Scene {
   private currentLevelIndex = 0;
@@ -141,7 +143,7 @@ export class GameScene extends Phaser.Scene {
     glow.fillEllipse(410, 810, 260, 220);
 
     this.add.image(GAME_WIDTH / 2, 62, 'panel-wide').setDisplaySize(500, 94);
-    this.add.image(GAME_WIDTH / 2, 908, 'panel-wide').setDisplaySize(500, 84);
+    this.add.image(GAME_WIDTH / 2, BOTTOM_PANEL_Y, 'panel-wide').setDisplaySize(500, 84);
 
     const shellOuterX = BOARD_ORIGIN.x - 36;
     const shellOuterY = BOARD_ORIGIN.y - 40;
@@ -300,9 +302,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildBottomUi(): void {
-    this.createButton(90, 906, 'Restart', 'button-secondary', () => this.reloadLevel());
-    this.speedButton = this.createButton(270, 906, 'Speed 1x', 'button-primary', () => this.toggleSpeed());
-    this.createButton(450, 906, 'Menu', 'button-primary', () => this.scene.start('menu'));
+    this.createButton(90, BOTTOM_BUTTON_Y, 'Restart', 'button-secondary', () => this.reloadLevel());
+    this.speedButton = this.createButton(270, BOTTOM_BUTTON_Y, 'Speed 1x', 'button-primary', () => this.toggleSpeed());
+    this.createButton(450, BOTTOM_BUTTON_Y, 'Menu', 'button-primary', () => this.scene.start('menu'));
   }
 
   private buildModal(): void {
