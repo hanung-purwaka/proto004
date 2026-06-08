@@ -80,6 +80,7 @@ export class GameScene extends Phaser.Scene {
   private busy = false;
   private ballIdCounter = 0;
   private speedMultiplier = 1;
+  private fullConveyorAt?: number;
 
   private swipeStart?: { x: number; y: number; row: number; col: number };
 
@@ -401,6 +402,7 @@ export class GameScene extends Phaser.Scene {
     this.bestChain = 0;
     this.lastMatchAt = -1000;
     this.speedMultiplier = 1;
+    this.fullConveyorAt = undefined;
 
     this.levelText.setText(`Level ${this.currentLevel.id} • ${this.currentLevel.name}`);
     this.renderCrates();
@@ -482,8 +484,7 @@ export class GameScene extends Phaser.Scene {
           return;
         }
 
-        if (this.conveyorBalls.length >= this.currentLevel.maxActiveBalls) {
-          this.failLevel('The conveyor overloaded.');
+        if (this.getOccupiedSlotCount() >= this.perimeterCells.length) {
           return;
         }
 
@@ -576,10 +577,6 @@ export class GameScene extends Phaser.Scene {
       if (ball.progress >= pathLength) {
         ball.progress -= pathLength;
         ball.loops += 1;
-        if (ball.loops >= this.currentLevel.maxLoopsPerBall) {
-          this.failLevel('A ball looped too long and jammed the system.');
-          return;
-        }
       }
 
       const point = this.samplePath(ball.progress);
@@ -594,6 +591,8 @@ export class GameScene extends Phaser.Scene {
         this.tryMatchBall(ball, slotIndex);
       }
     }
+
+    this.updateJamState();
   }
 
   private tryMatchBall(ball: ConveyorBall, slotIndex: number): void {
@@ -648,6 +647,7 @@ export class GameScene extends Phaser.Scene {
     this.chainCount = now - this.lastMatchAt < CHAIN_WINDOW_MS ? this.chainCount + 1 : 1;
     this.bestChain = Math.max(this.bestChain, this.chainCount);
     this.lastMatchAt = now;
+    this.fullConveyorAt = undefined;
     this.matchCount += 1;
     this.score += 100 * this.chainCount;
 
@@ -788,6 +788,40 @@ export class GameScene extends Phaser.Scene {
 
   private reloadLevel(): void {
     this.loadLevel(this.currentLevelIndex);
+  }
+
+  private getOccupiedSlotCount(): number {
+    const pathLength = this.perimeterCells.length;
+    const occupiedSlots = new Set<number>();
+
+    this.conveyorBalls.forEach((ball) => {
+      const slotIndex = ball.lastSlotIndex >= 0
+        ? ball.lastSlotIndex
+        : Math.floor(ball.progress + 0.5) % pathLength;
+      occupiedSlots.add(slotIndex);
+    });
+
+    return occupiedSlots.size;
+  }
+
+  private updateJamState(): void {
+    const occupiedSlotCount = this.getOccupiedSlotCount();
+    const pathLength = this.perimeterCells.length;
+
+    if (occupiedSlotCount < pathLength) {
+      this.fullConveyorAt = undefined;
+      return;
+    }
+
+    if (this.fullConveyorAt === undefined) {
+      this.fullConveyorAt = this.time.now;
+      return;
+    }
+
+    const lapDurationMs = (pathLength / (this.currentLevel.conveyorSpeed * this.speedMultiplier)) * 1000;
+    if (this.time.now - this.fullConveyorAt >= lapDurationMs) {
+      this.failLevel('The conveyor stayed full for a full lap without any ball reaching a crate.');
+    }
   }
 
   private toggleSpeed(): void {
