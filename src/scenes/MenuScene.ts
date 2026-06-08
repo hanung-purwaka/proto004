@@ -2,8 +2,8 @@ import Phaser from 'phaser';
 import { levels } from '../data/levels';
 import { getSavedLevelIndex } from '../logic/progression';
 
-const BUTTON_TOUCH_WIDTH = 150;
-const BUTTON_TOUCH_HEIGHT = 58;
+const BUTTON_WIDTH = 180;
+const BUTTON_HEIGHT = 54;
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -96,7 +96,7 @@ export class MenuScene extends Phaser.Scene {
     label: string,
     action: () => void,
   ): Phaser.GameObjects.Container {
-    const image = this.add.image(0, 0, texture).setDisplaySize(BUTTON_TOUCH_WIDTH, BUTTON_TOUCH_HEIGHT);
+    const image = this.add.image(0, 0, texture).setDisplaySize(BUTTON_WIDTH, BUTTON_HEIGHT);
     const text = this.add.text(0, 0, label, {
       fontFamily: 'Trebuchet MS',
       fontSize: '24px',
@@ -105,13 +105,13 @@ export class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     const container = this.add.container(x, y, [image, text]);
-    container.setSize(BUTTON_TOUCH_WIDTH, BUTTON_TOUCH_HEIGHT);
+    container.setSize(BUTTON_WIDTH, BUTTON_HEIGHT);
     container.setInteractive(
       new Phaser.Geom.Rectangle(
-        -BUTTON_TOUCH_WIDTH / 2,
-        -BUTTON_TOUCH_HEIGHT / 2,
-        BUTTON_TOUCH_WIDTH,
-        BUTTON_TOUCH_HEIGHT,
+        -BUTTON_WIDTH / 2,
+        -BUTTON_HEIGHT / 2,
+        BUTTON_WIDTH,
+        BUTTON_HEIGHT,
       ),
       Phaser.Geom.Rectangle.Contains,
     );

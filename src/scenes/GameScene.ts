@@ -48,8 +48,8 @@ const FUNNEL_FLOOR_Y = BOARD_ORIGIN.y - CONVEYOR_OFFSET - 4;
 const SWIPE_THRESHOLD = 18;
 const CHAIN_WINDOW_MS = 900;
 const QUEUE_PREVIEW_COUNT = 5;
-const BUTTON_TOUCH_WIDTH = 150;
-const BUTTON_TOUCH_HEIGHT = 58;
+const BUTTON_WIDTH = 180;
+const BUTTON_HEIGHT = 54;
 const SPEED_OPTIONS = [1, 1.5, 2, 3];
 const CONVEYOR_ENTRY_INDEX = Math.floor(GRID_COLS / 2);
 const BOTTOM_PANEL_Y = 894;
@@ -84,7 +84,7 @@ export class GameScene extends Phaser.Scene {
   private speedMultiplier = 1;
   private fullConveyorAt?: number;
 
-  private swipeStart?: { x: number; y: number; row: number; col: number };
+  private swipeStart?: { pointerId: number; x: number; y: number; row: number; col: number };
 
   private levelText!: Phaser.GameObjects.Text;
   private moveText!: Phaser.GameObjects.Text;
@@ -357,36 +357,47 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      this.swipeStart = { x: pointer.x, y: pointer.y, row: cell.row, col: cell.col };
+      this.swipeStart = { pointerId: pointer.id, x: pointer.x, y: pointer.y, row: cell.row, col: cell.col };
       this.dismissOnboarding();
     });
 
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      this.resolveSwipe(pointer);
+    });
+
     this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
-      if (!this.swipeStart || this.phase !== 'play' || this.busy) {
-        this.swipeStart = undefined;
-        return;
-      }
-
-      const dx = pointer.x - this.swipeStart.x;
-      const dy = pointer.y - this.swipeStart.y;
-
-      if (Math.abs(dx) < SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_THRESHOLD) {
-        this.swipeStart = undefined;
-        return;
-      }
-
-      const direction: ShiftDirection =
-        Math.abs(dx) > Math.abs(dy)
-          ? dx > 0
-            ? 'right'
-            : 'left'
-          : dy > 0
-            ? 'down'
-            : 'up';
-
-      this.tryMove(this.swipeStart.row, this.swipeStart.col, direction);
       this.swipeStart = undefined;
     });
+  }
+
+  private resolveSwipe(pointer: Phaser.Input.Pointer): void {
+    if (!this.swipeStart || this.phase !== 'play' || this.busy) {
+      return;
+    }
+
+    if (pointer.id !== this.swipeStart.pointerId) {
+      return;
+    }
+
+    const dx = pointer.x - this.swipeStart.x;
+    const dy = pointer.y - this.swipeStart.y;
+
+    if (Math.abs(dx) < SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_THRESHOLD) {
+      return;
+    }
+
+    const direction: ShiftDirection =
+      Math.abs(dx) > Math.abs(dy)
+        ? dx > 0
+          ? 'right'
+          : 'left'
+        : dy > 0
+          ? 'down'
+          : 'up';
+
+    const { row, col } = this.swipeStart;
+    this.swipeStart = undefined;
+    this.tryMove(row, col, direction);
   }
 
   private loadLevel(levelIndex: number): void {
@@ -983,7 +994,7 @@ export class GameScene extends Phaser.Scene {
     action: () => void,
     modal = false,
   ): Phaser.GameObjects.Container {
-    const image = this.add.image(0, 0, texture).setDisplaySize(BUTTON_TOUCH_WIDTH, BUTTON_TOUCH_HEIGHT);
+    const image = this.add.image(0, 0, texture).setDisplaySize(BUTTON_WIDTH, BUTTON_HEIGHT);
     const text = this.add.text(0, 0, label, {
       fontFamily: 'Trebuchet MS',
       fontSize: '20px',
@@ -992,13 +1003,13 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     const button = this.add.container(x, y, [image, text]);
-    button.setSize(BUTTON_TOUCH_WIDTH, BUTTON_TOUCH_HEIGHT);
+    button.setSize(BUTTON_WIDTH, BUTTON_HEIGHT);
     button.setInteractive(
       new Phaser.Geom.Rectangle(
-        -BUTTON_TOUCH_WIDTH / 2,
-        -BUTTON_TOUCH_HEIGHT / 2,
-        BUTTON_TOUCH_WIDTH,
-        BUTTON_TOUCH_HEIGHT,
+        -BUTTON_WIDTH / 2,
+        -BUTTON_HEIGHT / 2,
+        BUTTON_WIDTH,
+        BUTTON_HEIGHT,
       ),
       Phaser.Geom.Rectangle.Contains,
     );
@@ -1006,7 +1017,9 @@ export class GameScene extends Phaser.Scene {
 
     button.on('pointerover', () => button.setScale(1.03));
     button.on('pointerout', () => button.setScale(1));
+    button.on('pointerdown', () => button.setScale(0.98));
     button.on('pointerup', () => {
+      button.setScale(1.03);
       if (modal) {
         this.hideModal();
       }
