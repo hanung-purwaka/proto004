@@ -118,7 +118,11 @@ export class MenuScene extends Phaser.Scene {
 
     container.on('pointerover', () => container.setScale(1.03));
     container.on('pointerout', () => container.setScale(1));
-    container.on('pointerup', () => action());
+    container.on('pointerdown', () => {
+      container.setScale(0.98);
+      action();
+    });
+    container.on('pointerup', () => container.setScale(1.03));
 
     return container;
   }
