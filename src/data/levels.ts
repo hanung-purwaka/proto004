@@ -65,8 +65,7 @@ const parseCell = (cell: string): GridCell => SYMBOL_TO_COLOR[cell] ?? null;
 const makeGrid = (rows: string[]): GridState =>
   rows.map((row) => row.split('').map((cell) => parseCell(cell)));
 
-const makeLayerQueue = (rows: string[]): ColorKey[] => {
-  const chars = rows.map((row) => row.split(''));
+const makeLayerQueueFromGrid = (grid: GridState): ColorKey[] => {
   const queue: ColorKey[] = [];
 
   const collectLayer = (top: number, left: number, bottom: number, right: number): void => {
@@ -75,14 +74,14 @@ const makeLayerQueue = (rows: string[]): ColorKey[] => {
     }
 
     for (let col = left; col <= right; col += 1) {
-      const cell = parseCell(chars[top][col]);
+      const cell = grid[top][col];
       if (cell !== null) {
         queue.push(cell);
       }
     }
 
     for (let row = top + 1; row <= bottom; row += 1) {
-      const cell = parseCell(chars[row][right]);
+      const cell = grid[row][right];
       if (cell !== null) {
         queue.push(cell);
       }
@@ -90,7 +89,7 @@ const makeLayerQueue = (rows: string[]): ColorKey[] => {
 
     if (bottom > top) {
       for (let col = right - 1; col >= left; col -= 1) {
-        const cell = parseCell(chars[bottom][col]);
+        const cell = grid[bottom][col];
         if (cell !== null) {
           queue.push(cell);
         }
@@ -99,7 +98,7 @@ const makeLayerQueue = (rows: string[]): ColorKey[] => {
 
     if (right > left) {
       for (let row = bottom - 1; row > top; row -= 1) {
-        const cell = parseCell(chars[row][left]);
+        const cell = grid[row][left];
         if (cell !== null) {
           queue.push(cell);
         }
@@ -109,9 +108,31 @@ const makeLayerQueue = (rows: string[]): ColorKey[] => {
     collectLayer(top + 1, left + 1, bottom - 1, right - 1);
   };
 
-  collectLayer(0, 0, rows.length - 1, rows[0].length - 1);
+  collectLayer(0, 0, grid.length - 1, grid[0].length - 1);
 
   return queue;
+};
+
+const countColors = (cells: Array<ColorKey | null>): Record<ColorKey, number> => {
+  const counts = Object.fromEntries(COLOR_ORDER.map((color) => [color, 0])) as Record<ColorKey, number>;
+
+  cells.forEach((cell) => {
+    if (cell !== null) {
+      counts[cell] += 1;
+    }
+  });
+
+  return counts;
+};
+
+const validateBoardAndQueue = (board: GridState, queue: ColorKey[]): void => {
+  const boardCounts = countColors(board.flat());
+  const queueCounts = countColors(queue);
+
+  const mismatch = COLOR_ORDER.some((color) => boardCounts[color] !== queueCounts[color]);
+  if (mismatch || queue.length !== board.flat().filter((cell) => cell !== null).length) {
+    throw new Error('Level queue must match board crate counts exactly.');
+  }
 };
 
 const expandPaletteRows = (rows: string[], paletteSeed: number): string[] =>
@@ -136,10 +157,14 @@ const expandPaletteRows = (rows: string[], paletteSeed: number): string[] =>
 
 const createLayout = (rows: string[], paletteSeed: number) => {
   const expandedRows = expandPaletteRows(rows, paletteSeed);
+  const board = makeGrid(expandedRows);
+  const queue = makeLayerQueueFromGrid(board);
+
+  validateBoardAndQueue(board, queue);
 
   return {
-    board: makeGrid(expandedRows),
-    queue: makeLayerQueue(expandedRows),
+    board,
+    queue,
   };
 };
 
