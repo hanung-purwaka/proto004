@@ -4,6 +4,7 @@ import { getSavedLevelIndex } from '../logic/progression';
 
 const BUTTON_WIDTH = 180;
 const BUTTON_HEIGHT = 54;
+const LEVEL_CHIP_SIZE = 62;
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -69,16 +70,20 @@ export class MenuScene extends Phaser.Scene {
       fontStyle: 'bold',
     }).setOrigin(0.5);
 
-    const playButton = this.createButton(270, 660, 'button-primary', savedLevel > 0 ? `Continue L${savedLevel + 1}` : 'Play', () => {
-      this.scene.start('game', { levelIndex: savedLevel });
-    });
+    this.add.text(270, 602, 'Select Level', {
+      fontFamily: 'Trebuchet MS',
+      fontSize: '24px',
+      fontStyle: 'bold',
+      color: '#f3fbff',
+    }).setOrigin(0.5);
 
-    const firstButton = this.createButton(270, 730, 'button-secondary', 'Start From Level 1', () => {
-      this.scene.start('game', { levelIndex: 0 });
+    levels.forEach((level, index) => {
+      const col = index % 5;
+      const row = Math.floor(index / 5);
+      const x = 118 + col * 76;
+      const y = 660 + row * 86;
+      this.createLevelChip(x, y, level.id, index, index === savedLevel);
     });
-
-    playButton.setDepth(3);
-    firstButton.setDepth(3);
 
     this.add.text(270, 850, 'Bright queue planning, tactile shifts, and satisfying chain clears.', {
       fontFamily: 'Trebuchet MS',
@@ -117,6 +122,48 @@ export class MenuScene extends Phaser.Scene {
     hitArea.on('pointerup', () => {
       container.setScale(1.03);
       action();
+    });
+    hitArea.on('pointerupoutside', () => container.setScale(1));
+    container.once(Phaser.GameObjects.Events.DESTROY, () => hitArea.destroy());
+
+    return container;
+  }
+
+  private createLevelChip(
+    x: number,
+    y: number,
+    levelNumber: number,
+    levelIndex: number,
+    isSavedLevel: boolean,
+  ): Phaser.GameObjects.Container {
+    const bg = this.add.image(0, 0, isSavedLevel ? 'button-primary' : 'button-secondary')
+      .setDisplaySize(LEVEL_CHIP_SIZE, LEVEL_CHIP_SIZE);
+    const text = this.add.text(0, -2, String(levelNumber), {
+      fontFamily: 'Trebuchet MS',
+      fontSize: '24px',
+      fontStyle: 'bold',
+      color: '#f8fbff',
+    }).setOrigin(0.5);
+    const tag = this.add.text(0, 26, isSavedLevel ? 'LAST' : '', {
+      fontFamily: 'Trebuchet MS',
+      fontSize: '9px',
+      fontStyle: 'bold',
+      color: '#eef8ff',
+    }).setOrigin(0.5);
+
+    const container = this.add.container(x, y, [bg, text, tag]);
+    container.setDepth(3);
+
+    const hitArea = this.add.rectangle(x, y, LEVEL_CHIP_SIZE + 10, LEVEL_CHIP_SIZE + 10, 0xffffff, 0.001);
+    hitArea.setInteractive({ useHandCursor: true });
+    hitArea.setDepth(4);
+
+    hitArea.on('pointerover', () => container.setScale(1.05));
+    hitArea.on('pointerout', () => container.setScale(1));
+    hitArea.on('pointerdown', () => container.setScale(0.96));
+    hitArea.on('pointerup', () => {
+      container.setScale(1.05);
+      this.scene.start('game', { levelIndex });
     });
     hitArea.on('pointerupoutside', () => container.setScale(1));
     container.once(Phaser.GameObjects.Events.DESTROY, () => hitArea.destroy());
