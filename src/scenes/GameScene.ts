@@ -898,19 +898,18 @@ export class GameScene extends Phaser.Scene {
       }
 
       const piece = this.pieces.get(pieceId);
-      const cellColor = this.grid[cell.row][cell.col];
-      if (!piece || cellColor !== ball.color) {
+      if (!piece) {
+        return;
+      }
+
+      const targetCell = piece.cells.find((pieceCell) => pieceCell.row === cell.row && pieceCell.col === cell.col);
+      if (!targetCell || targetCell.color !== ball.color) {
         return;
       }
 
       const rawDistance = Math.abs(ball.progress - slotIndex);
       const wrappedDistance = Math.min(rawDistance, pathLength - rawDistance);
       if (wrappedDistance > MATCH_PROGRESS_THRESHOLD) {
-        return;
-      }
-
-      const targetCell = piece.cells.find((pieceCell) => pieceCell.row === cell.row && pieceCell.col === cell.col);
-      if (!targetCell) {
         return;
       }
 
@@ -950,8 +949,10 @@ export class GameScene extends Phaser.Scene {
     this.dismissOnboarding();
 
     this.clearPieceFromGrid(piece);
+    this.clearPieceColorsFromGrid(piece);
     piece.cells = piece.cells.map((cell) => this.translateCell(cell, direction));
     this.writePieceToGrid(piece);
+    this.writePieceColorsToGrid(piece);
 
     const center = this.getPieceCenter(piece);
     this.tweens.add({
@@ -1378,9 +1379,21 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private writePieceColorsToGrid(piece: Pick<PieceView, 'cells'>): void {
+    piece.cells.forEach((cell) => {
+      this.grid[cell.row][cell.col] = cell.color;
+    });
+  }
+
   private clearPieceFromGrid(piece: Pick<PieceView, 'cells'>): void {
     piece.cells.forEach((cell) => {
       this.pieceGrid[cell.row][cell.col] = null;
+    });
+  }
+
+  private clearPieceColorsFromGrid(piece: Pick<PieceView, 'cells'>): void {
+    piece.cells.forEach((cell) => {
+      this.grid[cell.row][cell.col] = null;
     });
   }
 
