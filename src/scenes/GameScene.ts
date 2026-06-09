@@ -1114,16 +1114,26 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  private getPieceCenter(piece: Pick<PieceView, 'cells'> | PieceDefinition | PieceView): Phaser.Math.Vector2 {
-    const bounds = this.getPieceBounds(piece.cells);
+  private getPieceCells(
+    piece: Array<Pick<PieceCell, 'row' | 'col'>> | Pick<PieceView, 'cells'> | PieceDefinition | PieceView,
+  ): Array<Pick<PieceCell, 'row' | 'col'>> {
+    return Array.isArray(piece) ? piece : piece.cells;
+  }
+
+  private getPieceCenter(
+    piece: Array<Pick<PieceCell, 'row' | 'col'>> | Pick<PieceView, 'cells'> | PieceDefinition | PieceView,
+  ): Phaser.Math.Vector2 {
+    const bounds = this.getPieceBounds(this.getPieceCells(piece));
     return new Phaser.Math.Vector2(
       BOARD_ORIGIN.x + bounds.minCol * CELL_SIZE + ((bounds.maxCol - bounds.minCol + 1) * CELL_SIZE) / 2,
       BOARD_ORIGIN.y + bounds.minRow * CELL_SIZE + ((bounds.maxRow - bounds.minRow + 1) * CELL_SIZE) / 2,
     );
   }
 
-  private getPiecePixelSize(piece: Pick<PieceView, 'cells'> | PieceDefinition | PieceView): { width: number; height: number } {
-    const bounds = this.getPieceBounds(piece.cells);
+  private getPiecePixelSize(
+    piece: Array<Pick<PieceCell, 'row' | 'col'>> | Pick<PieceView, 'cells'> | PieceDefinition | PieceView,
+  ): { width: number; height: number } {
+    const bounds = this.getPieceBounds(this.getPieceCells(piece));
     return {
       width: (bounds.maxCol - bounds.minCol + 1) * CELL_SIZE - 8,
       height: (bounds.maxRow - bounds.minRow + 1) * CELL_SIZE - 8,
