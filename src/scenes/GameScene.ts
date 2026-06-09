@@ -41,6 +41,7 @@ interface ConveyorBall {
   lastSlotIndex: number;
   loops: number;
   matching: boolean;
+  targetCellKey?: string;
 }
 
 interface SwipeState {
@@ -802,6 +803,7 @@ export class GameScene extends Phaser.Scene {
     const { piece, targetCell } = target;
 
     ball.matching = true;
+    ball.targetCellKey = `${targetCell.row}:${targetCell.col}`;
     this.busy = true;
 
     const startX = ball.sprite.x;
@@ -823,19 +825,19 @@ export class GameScene extends Phaser.Scene {
         ball.shadow.setAlpha(0.12 + (1 - travel.value) * 0.1);
       },
       onComplete: () => {
-        this.completeMatch(ball, piece);
+        this.completeMatch(ball, piece, targetCell);
       },
     });
   }
 
-  private completeMatch(ball: ConveyorBall, piece: PieceView): void {
+  private completeMatch(ball: ConveyorBall, piece: PieceView, targetCell: PieceCell): void {
     this.conveyorBalls = this.conveyorBalls.filter((entry) => entry.id !== ball.id);
     ball.sprite.destroy();
     ball.glow.destroy();
     ball.shadow.destroy();
 
-    const matchedCell = this.findMatchingPerimeterCell(piece, ball.color);
-    if (!matchedCell) {
+    const matchedCell = piece.cells.find((cell) => cell.row === targetCell.row && cell.col === targetCell.col);
+    if (!matchedCell || matchedCell.color !== ball.color) {
       this.busy = false;
       return;
     }
@@ -889,7 +891,7 @@ export class GameScene extends Phaser.Scene {
     const pathLength = this.perimeterCells.length;
     let bestTarget: { piece: PieceView; targetCell: PieceCell; distance: number } | null = null;
 
-    this.perimeterCells.forEach((cell, slotIndex) => {
+    this.getExposedCells().forEach((cell) => {
       const pieceId = this.pieceGrid[cell.row][cell.col];
       if (!pieceId) {
         return;
@@ -898,6 +900,11 @@ export class GameScene extends Phaser.Scene {
       const piece = this.pieces.get(pieceId);
       const cellColor = this.grid[cell.row][cell.col];
       if (!piece || cellColor !== ball.color) {
+        return;
+      }
+
+      const slotIndex = this.getClosestPerimeterSlotIndex(cell.row, cell.col);
+      if (slotIndex === -1) {
         return;
       }
 
@@ -1410,15 +1417,49 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private findMatchingPerimeterCell(piece: PieceView, color: ColorKey): PieceCell | null {
-    for (const cell of piece.cells) {
-      const isPerimeter = this.perimeterCells.some((slot) => slot.row === cell.row && slot.col === cell.col);
-      if (isPerimeter && cell.color === color) {
-        return cell;
-      }
+  private getExposedCells(): PieceCell[] {
+    const exposed: PieceCell[] = [];
+
+    for (const piece of this.pieces.values()) {
+      piece.cells.forEach((cell) => {
+        if (this.isCellExposed(cell.row, cell.col)) {
+          exposed.push(cell);
+        }
+      });
     }
 
-    return null;
+    return exposed;
+  }
+
+  private isCellExposed(row: number, col: number): boolean {
+    return (
+      row === 0
+      || col === 0
+      || row === GRID_ROWS - 1
+      || col === GRID_COLS - 1
+      || this.grid[row - 1]?.[col] === null
+      || this.grid[row + 1]?.[col] === null
+      || this.grid[row]?.[col - 1] === null
+      || this.grid[row]?.[col + 1] === null
+    );
+  }
+
+  private getClosestPerimeterSlotIndex(row: number, col: number): number {
+    let bestIndex = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    const center = this.getCellCenter(row, col);
+
+    this.perimeterCells.forEach((slot, index) => {
+      const point = this.getConveyorPoint(slot);
+      const distance = Phaser.Math.Distance.Between(center.x, center.y, point.x, point.y);
+
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    });
+
+    return bestIndex;
   }
 
   private rebuildSplitPieces(piece: PieceView, removedCell: PieceCell): void {
