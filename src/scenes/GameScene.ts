@@ -4,6 +4,7 @@ import {
   GRID_COLS,
   GRID_ROWS,
   type ColorKey,
+  type GridState,
   type LevelDefinition,
   type PieceDefinition,
   levels,
@@ -17,13 +18,15 @@ import { getNextLevelIndex, saveLevelIndex } from '../logic/progression';
 
 type GamePhase = 'intro' | 'play' | 'win' | 'fail';
 
-interface PieceView {
-  id: string;
-  color: ColorKey;
+interface PieceCell {
   row: number;
   col: number;
-  width: number;
-  height: number;
+  color: ColorKey;
+}
+
+interface PieceView {
+  id: string;
+  cells: PieceCell[];
   container: Phaser.GameObjects.Container;
 }
 
@@ -63,6 +66,7 @@ export class GameScene extends Phaser.Scene {
   private currentLevel!: LevelDefinition;
   private phase: GamePhase = 'intro';
 
+  private grid: GridState = levels[0].board.map((row) => [...row]);
   private pieces = new Map<string, PieceView>();
   private pieceGrid: Array<Array<string | null>> = Array.from({ length: GRID_ROWS }, () => Array<string | null>(GRID_COLS).fill(null));
   private perimeterCells = getPerimeterOrder(GRID_ROWS, GRID_COLS);
@@ -398,6 +402,7 @@ export class GameScene extends Phaser.Scene {
 
     this.currentLevelIndex = Phaser.Math.Clamp(levelIndex, 0, levels.length - 1);
     this.currentLevel = levels[this.currentLevelIndex];
+    this.grid = this.currentLevel.board.map((row) => [...row]);
     this.pieceGrid = Array.from({ length: GRID_ROWS }, () => Array<string | null>(GRID_COLS).fill(null));
     this.dropColorQueueIndex = 0;
     this.phase = 'intro';
@@ -459,33 +464,43 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createPieceView(piece: PieceDefinition): PieceView {
-    const size = this.getPiecePixelSize(piece);
-    const center = this.getPieceCenter(piece);
-    const shadow = this.add.rectangle(0, 8, size.width - 6, size.height - 6, 0x000000, 0.22);
-    shadow.setStrokeStyle(0);
-    const body = this.add.rectangle(0, 0, size.width, size.height, COLORS[piece.color].dark, 1);
-    const shell = this.add.rectangle(0, 0, size.width - 8, size.height - 8, COLORS[piece.color].fill, 1);
-    const shine = this.add.rectangle(0, -size.height / 2 + 12, Math.max(26, size.width - 28), 10, COLORS[piece.color].light, 0.28);
-    const mark = this.add.circle(0, 0, Math.max(6, Math.min(size.width, size.height) * 0.12), COLORS[piece.color].light, 0.92);
-    const seams = this.add.graphics();
-    seams.lineStyle(2, COLORS[piece.color].glow, 0.24);
+    const cells = piece.cells.map((cell) => ({ ...cell }));
+    const bounds = this.getPieceBounds(cells);
+    const size = this.getPiecePixelSize(cells);
+    const center = this.getPieceCenter(cells);
+    const shadow = this.add.graphics();
+    const body = this.add.graphics();
+    const shell = this.add.graphics();
+    const accents = this.add.graphics();
 
-    for (let row = 1; row < piece.height; row += 1) {
-      const y = -size.height / 2 + row * CELL_SIZE;
-      seams.lineBetween(-size.width / 2 + 8, y, size.width / 2 - 8, y);
-    }
+    cells.forEach((cell) => {
+      const local = this.getLocalCellRect(cell, bounds);
+      const palette = COLORS[cell.color];
 
-    for (let col = 1; col < piece.width; col += 1) {
-      const x = -size.width / 2 + col * CELL_SIZE;
-      seams.lineBetween(x, -size.height / 2 + 8, x, size.height / 2 - 8);
-    }
+      shadow.fillStyle(0x000000, 0.22);
+      shadow.fillRoundedRect(local.x + 4, local.y + 8, local.width - 4, local.height - 4, 12);
 
-    const container = this.add.container(center.x, center.y, [shadow, body, shell, shine, seams, mark]);
+      body.fillStyle(palette.dark, 1);
+      body.fillRoundedRect(local.x, local.y, local.width, local.height, 12);
+
+      shell.fillStyle(palette.fill, 1);
+      shell.fillRoundedRect(local.x + 4, local.y + 4, local.width - 8, local.height - 8, 10);
+      shell.fillStyle(palette.light, 0.22);
+      shell.fillRoundedRect(local.x + 10, local.y + 8, Math.max(16, local.width - 20), 8, 4);
+
+      accents.fillStyle(palette.glow, 0.22);
+      accents.fillCircle(local.x + local.width / 2, local.y + local.height / 2, Math.max(6, Math.min(local.width, local.height) * 0.12));
+    });
+
+    const container = this.add.container(center.x, center.y, [shadow, body, shell, accents]);
     container.setDepth(5);
     container.setSize(size.width, size.height);
+    const hitCells = cells.map((cell) => this.getLocalCellRect(cell, bounds));
     container.setInteractive(
       new Phaser.Geom.Rectangle(-size.width / 2, -size.height / 2, size.width, size.height),
-      Phaser.Geom.Rectangle.Contains,
+      (_shape, x: number, y: number) =>
+        hitCells.some((cell) =>
+          x >= cell.x && x <= cell.x + cell.width && y >= cell.y && y <= cell.y + cell.height),
     );
     container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (this.phase !== 'play' || this.busy) {
@@ -505,11 +520,7 @@ export class GameScene extends Phaser.Scene {
 
     return {
       id: piece.id,
-      color: piece.color,
-      row: piece.row,
-      col: piece.col,
-      width: piece.width,
-      height: piece.height,
+      cells,
       container,
     };
   }
@@ -648,7 +659,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     const piece = this.pieces.get(pieceId);
-    if (!piece || piece.color !== ball.color) {
+    const cellColor = this.grid[target.row][target.col];
+    if (!piece || cellColor !== ball.color) {
       return;
     }
 
@@ -685,6 +697,13 @@ export class GameScene extends Phaser.Scene {
     ball.glow.destroy();
     ball.shadow.destroy();
 
+    const matchedCell = this.findMatchingPerimeterCell(piece, ball.color);
+    if (!matchedCell) {
+      this.busy = false;
+      return;
+    }
+
+    this.grid[matchedCell.row][matchedCell.col] = null;
     this.clearPieceFromGrid(piece);
     this.pieces.delete(piece.id);
 
@@ -696,8 +715,14 @@ export class GameScene extends Phaser.Scene {
     this.matchCount += 1;
     this.score += 100 * this.chainCount;
 
-    this.spawnClearEffect(piece.container.x, piece.container.y, piece.color, this.chainCount);
+    this.spawnClearEffect(
+      BOARD_ORIGIN.x + matchedCell.col * CELL_SIZE + CELL_SIZE / 2,
+      BOARD_ORIGIN.y + matchedCell.row * CELL_SIZE + CELL_SIZE / 2,
+      matchedCell.color,
+      this.chainCount,
+    );
     piece.container.destroy();
+    this.rebuildSplitPieces(piece, matchedCell);
 
     this.playSoundHook(this.chainCount > 1 ? 'chain' : 'match');
     this.triggerHaptic(this.chainCount > 1 ? 'success' : 'light');
@@ -717,8 +742,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const nextPosition = this.getMovedPiecePosition(piece, direction);
-    if (!nextPosition || !this.canMovePiece(piece, nextPosition.row, nextPosition.col)) {
+    if (!this.canMovePiece(piece, direction)) {
       this.invalidShiftFeedback(piece);
       this.playSoundHook('invalid');
       this.triggerHaptic('error');
@@ -732,8 +756,7 @@ export class GameScene extends Phaser.Scene {
     this.dismissOnboarding();
 
     this.clearPieceFromGrid(piece);
-    piece.row = nextPosition.row;
-    piece.col = nextPosition.col;
+    piece.cells = piece.cells.map((cell) => this.translateCell(cell, direction));
     this.writePieceToGrid(piece);
 
     const center = this.getPieceCenter(piece);
@@ -1092,70 +1115,157 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  private getPieceCenter(piece: Pick<PieceView, 'row' | 'col' | 'width' | 'height'>): Phaser.Math.Vector2 {
+  private getPieceCenter(piece: Pick<PieceView, 'cells'> | PieceDefinition | PieceView): Phaser.Math.Vector2 {
+    const bounds = this.getPieceBounds(piece.cells);
     return new Phaser.Math.Vector2(
-      BOARD_ORIGIN.x + piece.col * CELL_SIZE + (piece.width * CELL_SIZE) / 2,
-      BOARD_ORIGIN.y + piece.row * CELL_SIZE + (piece.height * CELL_SIZE) / 2,
+      BOARD_ORIGIN.x + bounds.minCol * CELL_SIZE + ((bounds.maxCol - bounds.minCol + 1) * CELL_SIZE) / 2,
+      BOARD_ORIGIN.y + bounds.minRow * CELL_SIZE + ((bounds.maxRow - bounds.minRow + 1) * CELL_SIZE) / 2,
     );
   }
 
-  private getPiecePixelSize(piece: Pick<PieceView, 'width' | 'height'>): { width: number; height: number } {
+  private getPiecePixelSize(piece: Pick<PieceView, 'cells'> | PieceDefinition | PieceView): { width: number; height: number } {
+    const bounds = this.getPieceBounds(piece.cells);
     return {
-      width: piece.width * CELL_SIZE - 8,
-      height: piece.height * CELL_SIZE - 8,
+      width: (bounds.maxCol - bounds.minCol + 1) * CELL_SIZE - 8,
+      height: (bounds.maxRow - bounds.minRow + 1) * CELL_SIZE - 8,
     };
   }
 
-  private writePieceToGrid(piece: Pick<PieceView, 'id' | 'row' | 'col' | 'width' | 'height'>): void {
-    for (let row = piece.row; row < piece.row + piece.height; row += 1) {
-      for (let col = piece.col; col < piece.col + piece.width; col += 1) {
-        this.pieceGrid[row][col] = piece.id;
-      }
-    }
+  private getPieceBounds(cells: Array<Pick<PieceCell, 'row' | 'col'>>): { minRow: number; maxRow: number; minCol: number; maxCol: number } {
+    return {
+      minRow: Math.min(...cells.map((cell) => cell.row)),
+      maxRow: Math.max(...cells.map((cell) => cell.row)),
+      minCol: Math.min(...cells.map((cell) => cell.col)),
+      maxCol: Math.max(...cells.map((cell) => cell.col)),
+    };
   }
 
-  private clearPieceFromGrid(piece: Pick<PieceView, 'row' | 'col' | 'width' | 'height'>): void {
-    for (let row = piece.row; row < piece.row + piece.height; row += 1) {
-      for (let col = piece.col; col < piece.col + piece.width; col += 1) {
-        this.pieceGrid[row][col] = null;
-      }
-    }
+  private getLocalCellRect(
+    cell: Pick<PieceCell, 'row' | 'col'>,
+    bounds: { minRow: number; maxRow: number; minCol: number; maxCol: number },
+  ): { x: number; y: number; width: number; height: number } {
+    const width = CELL_SIZE - 8;
+    const height = CELL_SIZE - 8;
+    const totalWidth = (bounds.maxCol - bounds.minCol + 1) * CELL_SIZE - 8;
+    const totalHeight = (bounds.maxRow - bounds.minRow + 1) * CELL_SIZE - 8;
+    return {
+      x: -totalWidth / 2 + (cell.col - bounds.minCol) * CELL_SIZE,
+      y: -totalHeight / 2 + (cell.row - bounds.minRow) * CELL_SIZE,
+      width,
+      height,
+    };
   }
 
-  private getMovedPiecePosition(
-    piece: Pick<PieceView, 'row' | 'col'>,
-    direction: ShiftDirection,
-  ): { row: number; col: number } | null {
+  private writePieceToGrid(piece: Pick<PieceView, 'id' | 'cells'>): void {
+    piece.cells.forEach((cell) => {
+      this.pieceGrid[cell.row][cell.col] = piece.id;
+    });
+  }
+
+  private clearPieceFromGrid(piece: Pick<PieceView, 'cells'>): void {
+    piece.cells.forEach((cell) => {
+      this.pieceGrid[cell.row][cell.col] = null;
+    });
+  }
+
+  private translateCell(cell: PieceCell, direction: ShiftDirection): PieceCell {
     if (direction === 'left') {
-      return { row: piece.row, col: piece.col - 1 };
+      return { ...cell, col: cell.col - 1 };
     }
 
     if (direction === 'right') {
-      return { row: piece.row, col: piece.col + 1 };
+      return { ...cell, col: cell.col + 1 };
     }
 
     if (direction === 'up') {
-      return { row: piece.row - 1, col: piece.col };
+      return { ...cell, row: cell.row - 1 };
     }
 
-    return { row: piece.row + 1, col: piece.col };
+    return { ...cell, row: cell.row + 1 };
   }
 
-  private canMovePiece(piece: PieceView, nextRow: number, nextCol: number): boolean {
-    if (nextRow < 0 || nextCol < 0 || nextRow + piece.height > GRID_ROWS || nextCol + piece.width > GRID_COLS) {
-      return false;
-    }
+  private canMovePiece(piece: PieceView, direction: ShiftDirection): boolean {
+    return piece.cells.every((cell) => {
+      const next = this.translateCell(cell, direction);
+      if (next.row < 0 || next.col < 0 || next.row >= GRID_ROWS || next.col >= GRID_COLS) {
+        return false;
+      }
 
-    for (let row = nextRow; row < nextRow + piece.height; row += 1) {
-      for (let col = nextCol; col < nextCol + piece.width; col += 1) {
-        const occupant = this.pieceGrid[row][col];
-        if (occupant !== null && occupant !== piece.id) {
-          return false;
-        }
+      const occupant = this.pieceGrid[next.row][next.col];
+      return occupant === null || occupant === piece.id;
+    });
+  }
+
+  private findMatchingPerimeterCell(piece: PieceView, color: ColorKey): PieceCell | null {
+    for (const cell of piece.cells) {
+      const isPerimeter = this.perimeterCells.some((slot) => slot.row === cell.row && slot.col === cell.col);
+      if (isPerimeter && cell.color === color) {
+        return cell;
       }
     }
 
-    return true;
+    return null;
+  }
+
+  private rebuildSplitPieces(piece: PieceView, removedCell: PieceCell): void {
+    const remaining = piece.cells.filter((cell) => !(cell.row === removedCell.row && cell.col === removedCell.col));
+    const components = this.getConnectedComponents(remaining);
+
+    components.forEach((cells, index) => {
+      const nextPiece: PieceDefinition = {
+        id: `${piece.id}-split-${index}-${this.time.now}`,
+        cells,
+      };
+      const view = this.createPieceView(nextPiece);
+      this.pieces.set(nextPiece.id, view);
+      this.writePieceToGrid(view);
+    });
+  }
+
+  private getConnectedComponents(cells: PieceCell[]): PieceCell[][] {
+    const visited = new Set<string>();
+    const byKey = new Map(cells.map((cell) => [`${cell.row}:${cell.col}`, cell]));
+    const components: PieceCell[][] = [];
+
+    cells.forEach((cell) => {
+      const key = `${cell.row}:${cell.col}`;
+      if (visited.has(key)) {
+        return;
+      }
+
+      const queue = [cell];
+      const component: PieceCell[] = [];
+      visited.add(key);
+
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        component.push(current);
+
+        const neighbors = [
+          { row: current.row - 1, col: current.col },
+          { row: current.row + 1, col: current.col },
+          { row: current.row, col: current.col - 1 },
+          { row: current.row, col: current.col + 1 },
+        ];
+
+        neighbors.forEach((neighbor) => {
+          const neighborKey = `${neighbor.row}:${neighbor.col}`;
+          if (visited.has(neighborKey)) {
+            return;
+          }
+
+          const found = byKey.get(neighborKey);
+          if (found) {
+            visited.add(neighborKey);
+            queue.push(found);
+          }
+        });
+      }
+
+      components.push(component);
+    });
+
+    return components;
   }
 
   private getConveyorPoint(position: GridPosition): Phaser.Math.Vector2 {

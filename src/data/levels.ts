@@ -23,11 +23,7 @@ export interface LevelDefinition {
 
 export interface PieceDefinition {
   id: string;
-  color: ColorKey;
-  row: number;
-  col: number;
-  width: number;
-  height: number;
+  cells: Array<{ row: number; col: number; color: ColorKey }>;
 }
 
 export interface ColorDefinition {
@@ -86,11 +82,9 @@ const makePieceGrid = (pieces: PieceDefinition[]): Array<Array<string | null>> =
   const pieceGrid = Array.from({ length: GRID_ROWS }, () => Array<string | null>(GRID_COLS).fill(null));
 
   pieces.forEach((piece) => {
-    for (let row = piece.row; row < piece.row + piece.height; row += 1) {
-      for (let col = piece.col; col < piece.col + piece.width; col += 1) {
+    piece.cells.forEach(({ row, col }) => {
         pieceGrid[row][col] = piece.id;
-      }
-    }
+    });
   });
 
   return pieceGrid;
@@ -118,7 +112,7 @@ const makeLayerQueueFromPieces = (grid: GridState, pieces: PieceDefinition[]): C
       }
 
       queued.add(pieceId);
-      queue.push(pieceMap.get(pieceId)!.color);
+      queue.push(...pieceMap.get(pieceId)!.cells.map((cell) => cell.color));
     };
 
     for (let col = left; col <= right; col += 1) {
@@ -150,7 +144,7 @@ const makeLayerQueueFromPieces = (grid: GridState, pieces: PieceDefinition[]): C
 };
 
 const countPieceColors = (pieces: PieceDefinition[]): Record<ColorKey, number> => {
-  return countColors(pieces.map((piece) => piece.color));
+  return countColors(pieces.flatMap((piece) => piece.cells.map((cell) => cell.color)));
 };
 
 const countColors = (cells: Array<ColorKey | null>): Record<ColorKey, number> => {
@@ -170,7 +164,7 @@ const validatePiecesAndQueue = (pieces: PieceDefinition[], queue: ColorKey[]): v
   const queueCounts = countColors(queue);
 
   const mismatch = COLOR_ORDER.some((color) => pieceCounts[color] !== queueCounts[color]);
-  if (mismatch || queue.length !== pieces.length) {
+  if (mismatch || queue.length !== pieces.flatMap((piece) => piece.cells).length) {
     throw new Error('Level queue must match piece counts exactly.');
   }
 };
@@ -195,27 +189,6 @@ const expandPaletteRows = (rows: string[], paletteSeed: number): string[] =>
       .join(''),
   );
 
-const applyMergeRects = (grid: GridState, mergeRects: MergeRect[]): GridState => {
-  const next = grid.map((row) => [...row]);
-
-  mergeRects.forEach((rect) => {
-    const color = next[rect.row]?.[rect.col];
-    if (color === null || color === undefined) {
-      return;
-    }
-
-    for (let row = rect.row; row < rect.row + rect.height; row += 1) {
-      for (let col = rect.col; col < rect.col + rect.width; col += 1) {
-        if (row >= 0 && row < GRID_ROWS && col >= 0 && col < GRID_COLS) {
-          next[row][col] = color;
-        }
-      }
-    }
-  });
-
-  return next;
-};
-
 const makePieces = (grid: GridState, mergeRects: MergeRect[]): PieceDefinition[] => {
   const claimed = Array.from({ length: GRID_ROWS }, () => Array<boolean>(GRID_COLS).fill(false));
   const pieces: PieceDefinition[] = [];
@@ -225,20 +198,20 @@ const makePieces = (grid: GridState, mergeRects: MergeRect[]): PieceDefinition[]
     .slice()
     .sort((a, b) => b.width * b.height - a.width * a.height)
     .forEach((rect) => {
-      const color = grid[rect.row]?.[rect.col];
-      if (color === null || color === undefined) {
+      if (grid[rect.row]?.[rect.col] === null || grid[rect.row]?.[rect.col] === undefined) {
         return;
       }
 
-      const cells: Array<{ row: number; col: number }> = [];
+      const cells: Array<{ row: number; col: number; color: ColorKey }> = [];
 
       for (let row = rect.row; row < rect.row + rect.height; row += 1) {
         for (let col = rect.col; col < rect.col + rect.width; col += 1) {
-          if (row >= GRID_ROWS || col >= GRID_COLS || grid[row][col] !== color || claimed[row][col]) {
+          const color = grid[row]?.[col];
+          if (row >= GRID_ROWS || col >= GRID_COLS || color === null || color === undefined || claimed[row][col]) {
             return;
           }
 
-          cells.push({ row, col });
+          cells.push({ row, col, color });
         }
       }
 
@@ -248,11 +221,7 @@ const makePieces = (grid: GridState, mergeRects: MergeRect[]): PieceDefinition[]
 
       pieces.push({
         id: `piece-${pieceIndex += 1}`,
-        color,
-        row: rect.row,
-        col: rect.col,
-        width: rect.width,
-        height: rect.height,
+        cells,
       });
     });
 
@@ -266,11 +235,7 @@ const makePieces = (grid: GridState, mergeRects: MergeRect[]): PieceDefinition[]
       claimed[row][col] = true;
       pieces.push({
         id: `piece-${pieceIndex += 1}`,
-        color,
-        row,
-        col,
-        width: 1,
-        height: 1,
+        cells: [{ row, col, color }],
       });
     }
   }
@@ -280,8 +245,7 @@ const makePieces = (grid: GridState, mergeRects: MergeRect[]): PieceDefinition[]
 
 const createLayout = (rows: string[], paletteSeed: number, mergeRects: MergeRect[]) => {
   const expandedRows = expandPaletteRows(rows, paletteSeed);
-  const baseBoard = makeGrid(expandedRows);
-  const board = applyMergeRects(baseBoard, mergeRects);
+  const board = makeGrid(expandedRows);
   const pieces = makePieces(board, mergeRects);
   const queue = makeLayerQueueFromPieces(board, pieces);
 
