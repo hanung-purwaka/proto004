@@ -30,14 +30,16 @@ export class BootScene extends Phaser.Scene {
     }
 
     const graphics = this.make.graphics({ x: 0, y: 0, add: false });
-    graphics.fillStyle(0x1f4e73, 1);
+    graphics.fillStyle(0xffffff, 1);
     graphics.fillCircle(26, 26, 24);
-    graphics.fillStyle(0xffffff, 0.18);
-    graphics.fillCircle(26, 26, 19);
+    graphics.fillStyle(0x000000, 0.1);
+    graphics.fillCircle(28, 30, 18);
+    graphics.fillStyle(0xffffff, 0.14);
+    graphics.fillCircle(24, 22, 20);
     graphics.fillStyle(0xffffff, 0.74);
     graphics.fillCircle(18, 16, 7);
-    graphics.fillStyle(0xffffff, 0.14);
-    graphics.fillEllipse(31, 34, 13, 8);
+    graphics.fillStyle(0xffffff, 0.18);
+    graphics.fillEllipse(31, 34, 12, 7);
     graphics.generateTexture(key, 52, 52);
     graphics.destroy();
   }

@@ -71,7 +71,6 @@ const SYMBOL_TO_COLOR: Record<string, ColorKey> = {
 };
 
 const BASE_SYMBOL_ORDER = ['R', 'B', 'Y', 'G', 'P'] as const;
-const EXTENDED_SYMBOL_ORDER = ['R', 'B', 'Y', 'G', 'P', 'O', 'I', 'L'] as const;
 
 const parseCell = (cell: string): GridCell => SYMBOL_TO_COLOR[cell] ?? null;
 
@@ -90,55 +89,131 @@ const makePieceGrid = (pieces: PieceDefinition[]): Array<Array<string | null>> =
   return pieceGrid;
 };
 
-const makeLayerQueueFromPieces = (grid: GridState, pieces: PieceDefinition[]): ColorKey[] => {
-  const queue: ColorKey[] = [];
-  const pieceGrid = makePieceGrid(pieces);
-  const pieceMap = new Map(pieces.map((piece) => [piece.id, piece]));
-  const queued = new Set<string>();
+const getPerimeterOrder = (rows: number, cols: number): Array<{ row: number; col: number }> => {
+  const order: Array<{ row: number; col: number }> = [];
 
-  const collectLayer = (top: number, left: number, bottom: number, right: number): void => {
-    if (top > bottom || left > right) {
+  for (let col = 0; col < cols; col += 1) {
+    order.push({ row: 0, col });
+  }
+
+  for (let row = 1; row < rows; row += 1) {
+    order.push({ row, col: cols - 1 });
+  }
+
+  for (let col = cols - 2; col >= 0; col -= 1) {
+    order.push({ row: rows - 1, col });
+  }
+
+  for (let row = rows - 2; row >= 1; row -= 1) {
+    order.push({ row, col: 0 });
+  }
+
+  return order;
+};
+
+const getConnectedComponents = (
+  cells: Array<{ row: number; col: number; color: ColorKey }>,
+): Array<Array<{ row: number; col: number; color: ColorKey }>> => {
+  const visited = new Set<string>();
+  const byKey = new Map(cells.map((cell) => [`${cell.row}:${cell.col}`, cell]));
+  const components: Array<Array<{ row: number; col: number; color: ColorKey }>> = [];
+
+  cells.forEach((cell) => {
+    const key = `${cell.row}:${cell.col}`;
+    if (visited.has(key)) {
       return;
     }
 
-    const collectCell = (row: number, col: number): void => {
-      if (grid[row][col] === null) {
-        return;
-      }
+    const queue = [cell];
+    const component: Array<{ row: number; col: number; color: ColorKey }> = [];
+    visited.add(key);
 
-      const pieceId = pieceGrid[row][col];
-      if (!pieceId || queued.has(pieceId)) {
-        return;
-      }
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      component.push(current);
 
-      queued.add(pieceId);
-      queue.push(...pieceMap.get(pieceId)!.cells.map((cell) => cell.color));
-    };
+      [
+        { row: current.row - 1, col: current.col },
+        { row: current.row + 1, col: current.col },
+        { row: current.row, col: current.col - 1 },
+        { row: current.row, col: current.col + 1 },
+      ].forEach((neighbor) => {
+        const neighborKey = `${neighbor.row}:${neighbor.col}`;
+        if (visited.has(neighborKey)) {
+          return;
+        }
 
-    for (let col = left; col <= right; col += 1) {
-      collectCell(top, col);
+        const found = byKey.get(neighborKey);
+        if (found) {
+          visited.add(neighborKey);
+          queue.push(found);
+        }
+      });
     }
 
-    for (let row = top + 1; row <= bottom; row += 1) {
-      collectCell(row, right);
-    }
+    components.push(component);
+  });
 
-    if (bottom > top) {
-      for (let col = right - 1; col >= left; col -= 1) {
-        collectCell(bottom, col);
+  return components;
+};
+
+const makePlayableQueue = (grid: GridState, pieces: PieceDefinition[]): ColorKey[] => {
+  const queue: ColorKey[] = [];
+  const board = grid.map((row) => [...row]);
+  let activePieces = pieces.map((piece) => ({
+    id: piece.id,
+    cells: piece.cells.map((cell) => ({ ...cell })),
+  }));
+  let splitCounter = 0;
+  const perimeter = getPerimeterOrder(grid.length, grid[0].length);
+
+  while (activePieces.length > 0) {
+    const pieceGrid = makePieceGrid(activePieces);
+    let matched = false;
+
+    for (const slot of perimeter) {
+      const color = board[slot.row][slot.col];
+      if (color === null) {
+        continue;
       }
-    }
 
-    if (right > left) {
-      for (let row = bottom - 1; row > top; row -= 1) {
-        collectCell(row, left);
+      const pieceId = pieceGrid[slot.row][slot.col];
+      if (!pieceId) {
+        continue;
       }
+
+      const pieceIndex = activePieces.findIndex((piece) => piece.id === pieceId);
+      if (pieceIndex === -1) {
+        continue;
+      }
+
+      const piece = activePieces[pieceIndex];
+      const removedCell = piece.cells.find((cell) => cell.row === slot.row && cell.col === slot.col);
+      if (!removedCell) {
+        continue;
+      }
+
+      queue.push(removedCell.color);
+      board[slot.row][slot.col] = null;
+
+      const remaining = piece.cells.filter((cell) => !(cell.row === removedCell.row && cell.col === removedCell.col));
+      activePieces.splice(pieceIndex, 1);
+
+      getConnectedComponents(remaining).forEach((component) => {
+        activePieces.push({
+          id: `${piece.id}-split-${splitCounter += 1}`,
+          cells: component,
+        });
+      });
+
+      matched = true;
+      break;
     }
 
-    collectLayer(top + 1, left + 1, bottom - 1, right - 1);
-  };
-
-  collectLayer(0, 0, grid.length - 1, grid[0].length - 1);
+    if (!matched) {
+      throw new Error('Unable to generate a playable queue from the current piece layout.');
+    }
+  }
 
   return queue;
 };
@@ -183,8 +258,8 @@ const expandPaletteRows = (rows: string[], paletteSeed: number): string[] =>
           return cell;
         }
 
-        const shift = (paletteSeed + rowIndex * 2 + colIndex * 3 + rowIndex * colIndex) % EXTENDED_SYMBOL_ORDER.length;
-        return EXTENDED_SYMBOL_ORDER[(baseIndex + shift) % EXTENDED_SYMBOL_ORDER.length];
+        const shift = (paletteSeed + rowIndex * 2 + colIndex * 3 + rowIndex * colIndex) % BASE_SYMBOL_ORDER.length;
+        return BASE_SYMBOL_ORDER[(baseIndex + shift) % BASE_SYMBOL_ORDER.length];
       })
       .join(''),
   );
@@ -247,7 +322,7 @@ const createLayout = (rows: string[], paletteSeed: number, mergeRects: MergeRect
   const expandedRows = expandPaletteRows(rows, paletteSeed);
   const board = makeGrid(expandedRows);
   const pieces = makePieces(board, mergeRects);
-  const queue = makeLayerQueueFromPieces(board, pieces);
+  const queue = makePlayableQueue(board, pieces);
 
   validatePiecesAndQueue(pieces, queue);
 
