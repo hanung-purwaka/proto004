@@ -43,6 +43,16 @@ interface ConveyorBall {
   matching: boolean;
 }
 
+interface SwipeState {
+  pointerId: number;
+  x: number;
+  y: number;
+  pieceId: string;
+  originX: number;
+  originY: number;
+  lockedDirection?: ShiftDirection;
+}
+
 const GAME_WIDTH = 540;
 const GAME_HEIGHT = 960;
 const BOARD_SIZE = 428;
@@ -51,7 +61,8 @@ const BOARD_ORIGIN = { x: (GAME_WIDTH - BOARD_SIZE) / 2, y: 228 };
 const CONVEYOR_OFFSET = 22;
 const FUNNEL_CENTER = { x: GAME_WIDTH / 2, y: 180 };
 const FUNNEL_FLOOR_Y = BOARD_ORIGIN.y - CONVEYOR_OFFSET - 4;
-const SWIPE_THRESHOLD = 10;
+const SWIPE_THRESHOLD = 12;
+const SWIPE_PREVIEW_DISTANCE = 18;
 const CHAIN_WINDOW_MS = 900;
 const QUEUE_PREVIEW_COUNT = 5;
 const BUTTON_WIDTH = 180;
@@ -93,7 +104,7 @@ export class GameScene extends Phaser.Scene {
   private speedMultiplier = 1;
   private fullConveyorAt?: number;
 
-  private swipeStart?: { pointerId: number; x: number; y: number; pieceId: string };
+  private swipeStart?: SwipeState;
 
   private levelText!: Phaser.GameObjects.Text;
   private moveText!: Phaser.GameObjects.Text;
@@ -361,18 +372,14 @@ export class GameScene extends Phaser.Scene {
 
   private registerInput(): void {
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      this.resolveSwipe(pointer);
+      this.updateSwipePreview(pointer);
     });
 
-    this.input.on('pointerup', () => {
-      if (this.swipeStart) {
-        this.pieces.get(this.swipeStart.pieceId)?.container.setScale(1);
-      }
-      this.swipeStart = undefined;
-    });
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => this.finishSwipe(pointer));
+    this.input.on('pointerupoutside', (pointer: Phaser.Input.Pointer) => this.finishSwipe(pointer));
   }
 
-  private resolveSwipe(pointer: Phaser.Input.Pointer): void {
+  private updateSwipePreview(pointer: Phaser.Input.Pointer): void {
     if (!this.swipeStart || this.phase !== 'play' || this.busy) {
       return;
     }
@@ -383,23 +390,76 @@ export class GameScene extends Phaser.Scene {
 
     const dx = pointer.x - this.swipeStart.x;
     const dy = pointer.y - this.swipeStart.y;
-
-    if (Math.abs(dx) < SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_THRESHOLD) {
+    const piece = this.pieces.get(this.swipeStart.pieceId);
+    if (!piece) {
+      this.swipeStart = undefined;
       return;
     }
 
-    const direction: ShiftDirection =
-      Math.abs(dx) > Math.abs(dy)
-        ? dx > 0
-          ? 'right'
-          : 'left'
-        : dy > 0
-          ? 'down'
-          : 'up';
+    if (Math.abs(dx) < SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_THRESHOLD) {
+      piece.container.setPosition(this.swipeStart.originX, this.swipeStart.originY);
+      return;
+    }
 
-    const { pieceId } = this.swipeStart;
+    if (!this.swipeStart.lockedDirection) {
+      this.swipeStart.lockedDirection =
+        Math.abs(dx) > Math.abs(dy)
+          ? dx > 0
+            ? 'right'
+            : 'left'
+          : dy > 0
+            ? 'down'
+            : 'up';
+    }
+
+    const direction = this.swipeStart.lockedDirection;
+    const previewOffset =
+      direction === 'left' || direction === 'right'
+        ? Phaser.Math.Clamp(dx, -SWIPE_PREVIEW_DISTANCE, SWIPE_PREVIEW_DISTANCE)
+        : Phaser.Math.Clamp(dy, -SWIPE_PREVIEW_DISTANCE, SWIPE_PREVIEW_DISTANCE);
+
+    piece.container.setPosition(
+      this.swipeStart.originX + (direction === 'left' || direction === 'right' ? previewOffset : 0),
+      this.swipeStart.originY + (direction === 'up' || direction === 'down' ? previewOffset : 0),
+    );
+  }
+
+  private finishSwipe(pointer: Phaser.Input.Pointer): void {
+    if (!this.swipeStart) {
+      return;
+    }
+
+    if (pointer.id !== this.swipeStart.pointerId) {
+      return;
+    }
+
+    const swipe = this.swipeStart;
     this.swipeStart = undefined;
-    this.tryMove(pieceId, direction);
+
+    const piece = this.pieces.get(swipe.pieceId);
+    if (!piece) {
+      return;
+    }
+
+    const dx = pointer.x - swipe.x;
+    const dy = pointer.y - swipe.y;
+    const movedEnough = Math.abs(dx) >= SWIPE_THRESHOLD || Math.abs(dy) >= SWIPE_THRESHOLD;
+    const direction = swipe.lockedDirection;
+
+    if (!movedEnough || !direction) {
+      this.tweens.add({
+        targets: piece.container,
+        x: swipe.originX,
+        y: swipe.originY,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 120,
+        ease: 'quad.out',
+      });
+      return;
+    }
+
+    this.tryMove(swipe.pieceId, direction, swipe.originX, swipe.originY);
   }
 
   private loadLevel(levelIndex: number): void {
@@ -489,12 +549,12 @@ export class GameScene extends Phaser.Scene {
       shadow.fillStyle(0x000000, 0.22);
       shadow.fillRoundedRect(local.x + 4, local.y + 8, local.width - 4, local.height - 4, 12);
 
-      body.fillStyle(palette.dark, 1);
+      body.fillStyle(palette.fill, 1);
       body.fillRoundedRect(local.x, local.y, local.width, local.height, 12);
 
-      shell.fillStyle(palette.fill, 1);
-      shell.fillRoundedRect(local.x + 4, local.y + 4, local.width - 8, local.height - 8, 10);
-      shell.fillStyle(palette.light, 0.22);
+      shell.fillStyle(palette.dark, 0.22);
+      shell.fillRoundedRect(local.x + 3, local.y + 3, local.width - 6, local.height - 6, 10);
+      shell.fillStyle(palette.light, 0.18);
       shell.fillRoundedRect(local.x + 10, local.y + 8, Math.max(16, local.width - 20), 8, 4);
     });
 
@@ -557,7 +617,14 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      this.swipeStart = { pointerId: pointer.id, x: pointer.x, y: pointer.y, pieceId: piece.id };
+      this.swipeStart = {
+        pointerId: pointer.id,
+        x: pointer.x,
+        y: pointer.y,
+        pieceId: piece.id,
+        originX: container.x,
+        originY: container.y,
+      };
       container.setScale(1.02);
       this.dismissOnboarding();
     });
@@ -824,7 +891,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private tryMove(pieceId: string, direction: ShiftDirection): void {
+  private tryMove(pieceId: string, direction: ShiftDirection, fromX?: number, fromY?: number): void {
     const piece = this.pieces.get(pieceId);
     if (!piece) {
       return;
@@ -834,7 +901,15 @@ export class GameScene extends Phaser.Scene {
       this.invalidShiftFeedback(piece);
       this.playSoundHook('invalid');
       this.triggerHaptic('error');
-      piece.container.setScale(1);
+      this.tweens.add({
+        targets: piece.container,
+        x: fromX ?? piece.container.x,
+        y: fromY ?? piece.container.y,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 120,
+        ease: 'quad.out',
+      });
       return;
     }
 
@@ -852,9 +927,10 @@ export class GameScene extends Phaser.Scene {
       targets: piece.container,
       x: center.x,
       y: center.y,
+      scaleX: 1,
+      scaleY: 1,
       duration: CRATE_MOVE_DURATION_MS,
-      ease: 'quad.out',
-      onComplete: () => piece.container.setScale(1),
+      ease: 'cubic.out',
     });
 
     this.time.delayedCall(CRATE_MOVE_DURATION_MS + 25, () => {
