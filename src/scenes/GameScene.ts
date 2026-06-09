@@ -474,6 +474,9 @@ export class GameScene extends Phaser.Scene {
     const body = this.add.graphics();
     const shell = this.add.graphics();
     const accents = this.add.graphics();
+    const outline = this.add.graphics();
+    const cellKeySet = new Set(cells.map((cell) => `${cell.row}:${cell.col}`));
+    const primaryPalette = COLORS[cells[0].color];
 
     cells.forEach((cell) => {
       const local = this.getLocalCellRect(cell, bounds);
@@ -494,7 +497,35 @@ export class GameScene extends Phaser.Scene {
       accents.fillCircle(local.x + local.width / 2, local.y + local.height / 2, Math.max(6, Math.min(local.width, local.height) * 0.12));
     });
 
-    const container = this.add.container(center.x, center.y, [shadow, body, shell, accents]);
+    if (cells.length > 1) {
+      outline.lineStyle(4, primaryPalette.light, 0.95);
+
+      cells.forEach((cell) => {
+        const local = this.getLocalCellRect(cell, bounds);
+        const left = local.x;
+        const right = local.x + local.width;
+        const top = local.y;
+        const bottom = local.y + local.height;
+
+        if (!cellKeySet.has(`${cell.row - 1}:${cell.col}`)) {
+          outline.lineBetween(left + 6, top + 2, right - 6, top + 2);
+        }
+
+        if (!cellKeySet.has(`${cell.row + 1}:${cell.col}`)) {
+          outline.lineBetween(left + 6, bottom - 2, right - 6, bottom - 2);
+        }
+
+        if (!cellKeySet.has(`${cell.row}:${cell.col - 1}`)) {
+          outline.lineBetween(left + 2, top + 6, left + 2, bottom - 6);
+        }
+
+        if (!cellKeySet.has(`${cell.row}:${cell.col + 1}`)) {
+          outline.lineBetween(right - 2, top + 6, right - 2, bottom - 6);
+        }
+      });
+    }
+
+    const container = this.add.container(center.x, center.y, [shadow, body, shell, accents, outline]);
     container.setDepth(5);
     container.setSize(size.width, size.height);
     const hitCells = cells.map((cell) => this.getLocalCellRect(cell, bounds));
