@@ -891,7 +891,7 @@ export class GameScene extends Phaser.Scene {
     const pathLength = this.perimeterCells.length;
     let bestTarget: { piece: PieceView; targetCell: PieceCell; distance: number } | null = null;
 
-    this.getExposedCells().forEach((cell) => {
+    this.perimeterCells.forEach((cell, slotIndex) => {
       const pieceId = this.pieceGrid[cell.row][cell.col];
       if (!pieceId) {
         return;
@@ -900,11 +900,6 @@ export class GameScene extends Phaser.Scene {
       const piece = this.pieces.get(pieceId);
       const cellColor = this.grid[cell.row][cell.col];
       if (!piece || cellColor !== ball.color) {
-        return;
-      }
-
-      const slotIndex = this.getClosestPerimeterSlotIndex(cell.row, cell.col);
-      if (slotIndex === -1) {
         return;
       }
 
@@ -1417,50 +1412,6 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private getExposedCells(): PieceCell[] {
-    const exposed: PieceCell[] = [];
-
-    for (const piece of this.pieces.values()) {
-      piece.cells.forEach((cell) => {
-        if (this.isCellExposed(cell.row, cell.col)) {
-          exposed.push(cell);
-        }
-      });
-    }
-
-    return exposed;
-  }
-
-  private isCellExposed(row: number, col: number): boolean {
-    return (
-      row === 0
-      || col === 0
-      || row === GRID_ROWS - 1
-      || col === GRID_COLS - 1
-      || this.grid[row - 1]?.[col] === null
-      || this.grid[row + 1]?.[col] === null
-      || this.grid[row]?.[col - 1] === null
-      || this.grid[row]?.[col + 1] === null
-    );
-  }
-
-  private getClosestPerimeterSlotIndex(row: number, col: number): number {
-    let bestIndex = -1;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    const center = this.getCellCenter(row, col);
-
-    this.perimeterCells.forEach((slot, index) => {
-      const point = this.getConveyorPoint(slot);
-      const distance = Phaser.Math.Distance.Between(center.x, center.y, point.x, point.y);
-
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestIndex = index;
-      }
-    });
-
-    return bestIndex;
-  }
 
   private rebuildSplitPieces(piece: PieceView, removedCell: PieceCell): void {
     const remaining = piece.cells.filter((cell) => !(cell.row === removedCell.row && cell.col === removedCell.col));
