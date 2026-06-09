@@ -5,12 +5,11 @@ import {
   GRID_ROWS,
   type ColorKey,
   type LevelDefinition,
+  type PieceDefinition,
   levels,
 } from '../data/levels';
 import {
-  countCrates,
   getPerimeterOrder,
-  moveCrate,
   type GridPosition,
   type ShiftDirection,
 } from '../logic/board';
@@ -18,10 +17,13 @@ import { getNextLevelIndex, saveLevelIndex } from '../logic/progression';
 
 type GamePhase = 'intro' | 'play' | 'win' | 'fail';
 
-interface CrateView {
+interface PieceView {
+  id: string;
   color: ColorKey;
   row: number;
   col: number;
+  width: number;
+  height: number;
   container: Phaser.GameObjects.Container;
 }
 
@@ -61,8 +63,8 @@ export class GameScene extends Phaser.Scene {
   private currentLevel!: LevelDefinition;
   private phase: GamePhase = 'intro';
 
-  private grid = levels[0].board;
-  private crateViews = new Map<string, CrateView>();
+  private pieces = new Map<string, PieceView>();
+  private pieceGrid: Array<Array<string | null>> = Array.from({ length: GRID_ROWS }, () => Array<string | null>(GRID_COLS).fill(null));
   private perimeterCells = getPerimeterOrder(GRID_ROWS, GRID_COLS);
   private conveyorPoints: Phaser.Math.Vector2[] = [];
   private beltMarkers: Phaser.GameObjects.Rectangle[] = [];
@@ -85,7 +87,7 @@ export class GameScene extends Phaser.Scene {
   private speedMultiplier = 1;
   private fullConveyorAt?: number;
 
-  private swipeStart?: { pointerId: number; x: number; y: number; row: number; col: number };
+  private swipeStart?: { pointerId: number; x: number; y: number; pieceId: string };
 
   private levelText!: Phaser.GameObjects.Text;
   private moveText!: Phaser.GameObjects.Text;
@@ -128,7 +130,7 @@ export class GameScene extends Phaser.Scene {
     this.updateDropBallVisual();
     this.ensureDropBallResolves();
 
-    if (this.phase === 'play' && this.dropBall === undefined && this.dropColorQueueIndex >= this.currentLevel.queue.length && this.conveyorBalls.length === 0 && countCrates(this.grid) > 0) {
+    if (this.phase === 'play' && this.dropBall === undefined && this.dropColorQueueIndex >= this.currentLevel.queue.length && this.conveyorBalls.length === 0 && this.pieces.size > 0) {
       this.failLevel('The queue ran dry before the board was cleared.');
     }
   }
@@ -349,25 +351,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private registerInput(): void {
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (this.phase !== 'play' || this.busy) {
-        return;
-      }
-
-      const cell = this.getBoardCellFromPointer(pointer.x, pointer.y);
-      if (!cell) {
-        return;
-      }
-
-      this.swipeStart = { pointerId: pointer.id, x: pointer.x, y: pointer.y, row: cell.row, col: cell.col };
-      this.dismissOnboarding();
-    });
-
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       this.resolveSwipe(pointer);
     });
 
-    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+    this.input.on('pointerup', () => {
+      if (this.swipeStart) {
+        this.pieces.get(this.swipeStart.pieceId)?.container.setScale(1);
+      }
       this.swipeStart = undefined;
     });
   }
@@ -397,9 +388,9 @@ export class GameScene extends Phaser.Scene {
           ? 'down'
           : 'up';
 
-    const { row, col } = this.swipeStart;
+    const { pieceId } = this.swipeStart;
     this.swipeStart = undefined;
-    this.tryMove(row, col, direction);
+    this.tryMove(pieceId, direction);
   }
 
   private loadLevel(levelIndex: number): void {
@@ -407,7 +398,7 @@ export class GameScene extends Phaser.Scene {
 
     this.currentLevelIndex = Phaser.Math.Clamp(levelIndex, 0, levels.length - 1);
     this.currentLevel = levels[this.currentLevelIndex];
-    this.grid = this.currentLevel.board.map((row) => [...row]);
+    this.pieceGrid = Array.from({ length: GRID_ROWS }, () => Array<string | null>(GRID_COLS).fill(null));
     this.dropColorQueueIndex = 0;
     this.phase = 'intro';
     this.score = 0;
@@ -420,7 +411,7 @@ export class GameScene extends Phaser.Scene {
     this.fullConveyorAt = undefined;
 
     this.levelText.setText(`Level ${this.currentLevel.id} • ${this.currentLevel.name}`);
-    this.renderCrates();
+    this.renderPieces();
     this.updateQueuePreview();
     this.updateHud();
     this.updateSpeedButton();
@@ -449,8 +440,9 @@ export class GameScene extends Phaser.Scene {
     });
     this.conveyorBalls = [];
 
-    this.crateViews.forEach((view) => view.container.destroy());
-    this.crateViews.clear();
+    this.pieces.forEach((view) => view.container.destroy());
+    this.pieces.clear();
+    this.pieceGrid = Array.from({ length: GRID_ROWS }, () => Array<string | null>(GRID_COLS).fill(null));
 
     this.tipPanel?.destroy();
     this.tipPanel = undefined;
@@ -458,31 +450,68 @@ export class GameScene extends Phaser.Scene {
     this.hideModal();
   }
 
-  private renderCrates(): void {
-    this.grid.forEach((row, rowIndex) => {
-      row.forEach((cell, colIndex) => {
-        if (cell === null) {
-          return;
-        }
-
-        const crate = this.createCrateView(rowIndex, colIndex, cell);
-        this.crateViews.set(this.crateKey(rowIndex, colIndex), crate);
-      });
+  private renderPieces(): void {
+    this.currentLevel.pieces.forEach((piece) => {
+      const view = this.createPieceView(piece);
+      this.pieces.set(piece.id, view);
+      this.writePieceToGrid(view);
     });
   }
 
-  private createCrateView(row: number, col: number, color: ColorKey): CrateView {
-    const center = this.getCellCenter(row, col);
-    const crateScale = Math.min(1.22, (CELL_SIZE + 3) / 72);
-    const shadow = this.add.image(0, 0, 'crate-shadow').setAlpha(0.32);
-    const base = this.add.image(0, 0, 'crate-base');
-    const top = this.add.image(0, 0, 'crate-top').setTint(COLORS[color].fill);
-    const mark = this.add.circle(0, 0, 7, COLORS[color].light, 0.88);
-    const container = this.add.container(center.x, center.y, [shadow, base, top, mark]);
-    container.setDepth(5);
-    container.setScale(crateScale);
+  private createPieceView(piece: PieceDefinition): PieceView {
+    const size = this.getPiecePixelSize(piece);
+    const center = this.getPieceCenter(piece);
+    const shadow = this.add.rectangle(0, 8, size.width - 6, size.height - 6, 0x000000, 0.22);
+    shadow.setStrokeStyle(0);
+    const body = this.add.rectangle(0, 0, size.width, size.height, COLORS[piece.color].dark, 1);
+    const shell = this.add.rectangle(0, 0, size.width - 8, size.height - 8, COLORS[piece.color].fill, 1);
+    const shine = this.add.rectangle(0, -size.height / 2 + 12, Math.max(26, size.width - 28), 10, COLORS[piece.color].light, 0.28);
+    const mark = this.add.circle(0, 0, Math.max(6, Math.min(size.width, size.height) * 0.12), COLORS[piece.color].light, 0.92);
+    const seams = this.add.graphics();
+    seams.lineStyle(2, COLORS[piece.color].glow, 0.24);
 
-    return { color, row, col, container };
+    for (let row = 1; row < piece.height; row += 1) {
+      const y = -size.height / 2 + row * CELL_SIZE;
+      seams.lineBetween(-size.width / 2 + 8, y, size.width / 2 - 8, y);
+    }
+
+    for (let col = 1; col < piece.width; col += 1) {
+      const x = -size.width / 2 + col * CELL_SIZE;
+      seams.lineBetween(x, -size.height / 2 + 8, x, size.height / 2 - 8);
+    }
+
+    const container = this.add.container(center.x, center.y, [shadow, body, shell, shine, seams, mark]);
+    container.setDepth(5);
+    container.setSize(size.width, size.height);
+    container.setInteractive(
+      new Phaser.Geom.Rectangle(-size.width / 2, -size.height / 2, size.width, size.height),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.phase !== 'play' || this.busy) {
+        return;
+      }
+
+      this.swipeStart = { pointerId: pointer.id, x: pointer.x, y: pointer.y, pieceId: piece.id };
+      container.setScale(1.02);
+      this.dismissOnboarding();
+    });
+    container.on('pointerup', () => container.setScale(1));
+    container.on('pointerout', () => {
+      if (!this.swipeStart || this.swipeStart.pieceId !== piece.id) {
+        container.setScale(1);
+      }
+    });
+
+    return {
+      id: piece.id,
+      color: piece.color,
+      row: piece.row,
+      col: piece.col,
+      width: piece.width,
+      height: piece.height,
+      container,
+    };
   }
 
   private scheduleSpawns(): void {
@@ -613,13 +642,13 @@ export class GameScene extends Phaser.Scene {
 
   private tryMatchBall(ball: ConveyorBall, slotIndex: number): void {
     const target = this.perimeterCells[slotIndex];
-    const cellColor = this.grid[target.row][target.col];
-    if (cellColor !== ball.color) {
+    const pieceId = this.pieceGrid[target.row][target.col];
+    if (!pieceId) {
       return;
     }
 
-    const crate = this.crateViews.get(this.crateKey(target.row, target.col));
-    if (!crate) {
+    const piece = this.pieces.get(pieceId);
+    if (!piece || piece.color !== ball.color) {
       return;
     }
 
@@ -628,7 +657,7 @@ export class GameScene extends Phaser.Scene {
 
     const startX = ball.sprite.x;
     const startY = ball.sprite.y;
-    const end = this.getCellCenter(target.row, target.col);
+    const end = this.getPieceCenter(piece);
     const travel = { value: 0 };
 
     this.tweens.addCounter({
@@ -645,19 +674,19 @@ export class GameScene extends Phaser.Scene {
         ball.shadow.setAlpha(0.12 + (1 - travel.value) * 0.1);
       },
       onComplete: () => {
-        this.completeMatch(ball, crate, target);
+        this.completeMatch(ball, piece);
       },
     });
   }
 
-  private completeMatch(ball: ConveyorBall, crate: CrateView, target: GridPosition): void {
+  private completeMatch(ball: ConveyorBall, piece: PieceView): void {
     this.conveyorBalls = this.conveyorBalls.filter((entry) => entry.id !== ball.id);
     ball.sprite.destroy();
     ball.glow.destroy();
     ball.shadow.destroy();
 
-    this.crateViews.delete(this.crateKey(target.row, target.col));
-    this.grid[target.row][target.col] = null;
+    this.clearPieceFromGrid(piece);
+    this.pieces.delete(piece.id);
 
     const now = this.time.now;
     this.chainCount = now - this.lastMatchAt < CHAIN_WINDOW_MS ? this.chainCount + 1 : 1;
@@ -667,8 +696,8 @@ export class GameScene extends Phaser.Scene {
     this.matchCount += 1;
     this.score += 100 * this.chainCount;
 
-    this.spawnClearEffect(crate.container.x, crate.container.y, crate.color, this.chainCount);
-    crate.container.destroy();
+    this.spawnClearEffect(piece.container.x, piece.container.y, piece.color, this.chainCount);
+    piece.container.destroy();
 
     this.playSoundHook(this.chainCount > 1 ? 'chain' : 'match');
     this.triggerHaptic(this.chainCount > 1 ? 'success' : 'light');
@@ -676,47 +705,45 @@ export class GameScene extends Phaser.Scene {
 
     this.time.delayedCall(80, () => {
       this.busy = false;
-      if (countCrates(this.grid) === 0) {
+      if (this.pieces.size === 0) {
         this.completeLevel(false);
       }
     });
   }
 
-  private tryMove(row: number, col: number, direction: ShiftDirection): void {
-    const result = moveCrate(this.grid, row, col, direction);
+  private tryMove(pieceId: string, direction: ShiftDirection): void {
+    const piece = this.pieces.get(pieceId);
+    if (!piece) {
+      return;
+    }
 
-    if (!result.moved) {
-      this.invalidShiftFeedback(row, col);
+    const nextPosition = this.getMovedPiecePosition(piece, direction);
+    if (!nextPosition || !this.canMovePiece(piece, nextPosition.row, nextPosition.col)) {
+      this.invalidShiftFeedback(piece);
       this.playSoundHook('invalid');
       this.triggerHaptic('error');
+      piece.container.setScale(1);
       return;
     }
 
     this.busy = true;
-    this.grid = result.grid.map((row) => [...row]);
     this.moveCount += 1;
     this.chainCount = 0;
     this.dismissOnboarding();
 
-    const movedViews = result.moves.map((move) => ({
-      move,
-      view: this.crateViews.get(this.crateKey(move.from.row, move.from.col)),
-    })).filter((entry): entry is { move: (typeof result.moves)[number]; view: CrateView } => Boolean(entry.view));
+    this.clearPieceFromGrid(piece);
+    piece.row = nextPosition.row;
+    piece.col = nextPosition.col;
+    this.writePieceToGrid(piece);
 
-    movedViews.forEach(({ move, view }) => {
-      this.crateViews.delete(this.crateKey(move.from.row, move.from.col));
-      view.row = move.to.row;
-      view.col = move.to.col;
-      this.crateViews.set(this.crateKey(move.to.row, move.to.col), view);
-
-      const center = this.getCellCenter(move.to.row, move.to.col);
-      this.tweens.add({
-        targets: view.container,
-        x: center.x,
-        y: center.y,
-        duration: CRATE_MOVE_DURATION_MS,
-        ease: 'quad.out',
-      });
+    const center = this.getPieceCenter(piece);
+    this.tweens.add({
+      targets: piece.container,
+      x: center.x,
+      y: center.y,
+      duration: CRATE_MOVE_DURATION_MS,
+      ease: 'quad.out',
+      onComplete: () => piece.container.setScale(1),
     });
 
     this.time.delayedCall(CRATE_MOVE_DURATION_MS + 25, () => {
@@ -729,11 +756,12 @@ export class GameScene extends Phaser.Scene {
     this.updateHud();
   }
 
-  private invalidShiftFeedback(row: number, col: number): void {
-    const x = BOARD_ORIGIN.x + col * CELL_SIZE + CELL_SIZE / 2;
-    const y = BOARD_ORIGIN.y + row * CELL_SIZE + CELL_SIZE / 2;
-    const width = CELL_SIZE - 8;
-    const height = CELL_SIZE - 8;
+  private invalidShiftFeedback(piece: PieceView): void {
+    const size = this.getPiecePixelSize(piece);
+    const x = piece.container.x;
+    const y = piece.container.y;
+    const width = size.width - 10;
+    const height = size.height - 10;
     const flash = this.add.rectangle(x, y, width, height, 0xffa29a, 0.18);
     flash.setStrokeStyle(3, 0xffcdc8, 0.8);
 
@@ -1057,22 +1085,77 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private getBoardCellFromPointer(x: number, y: number): GridPosition | null {
-    if (x < BOARD_ORIGIN.x || x >= BOARD_ORIGIN.x + BOARD_SIZE || y < BOARD_ORIGIN.y || y >= BOARD_ORIGIN.y + BOARD_SIZE) {
-      return null;
-    }
-
-    return {
-      row: Math.floor((y - BOARD_ORIGIN.y) / CELL_SIZE),
-      col: Math.floor((x - BOARD_ORIGIN.x) / CELL_SIZE),
-    };
-  }
-
   private getCellCenter(row: number, col: number): Phaser.Math.Vector2 {
     return new Phaser.Math.Vector2(
       BOARD_ORIGIN.x + col * CELL_SIZE + CELL_SIZE / 2,
       BOARD_ORIGIN.y + row * CELL_SIZE + CELL_SIZE / 2,
     );
+  }
+
+  private getPieceCenter(piece: Pick<PieceView, 'row' | 'col' | 'width' | 'height'>): Phaser.Math.Vector2 {
+    return new Phaser.Math.Vector2(
+      BOARD_ORIGIN.x + piece.col * CELL_SIZE + (piece.width * CELL_SIZE) / 2,
+      BOARD_ORIGIN.y + piece.row * CELL_SIZE + (piece.height * CELL_SIZE) / 2,
+    );
+  }
+
+  private getPiecePixelSize(piece: Pick<PieceView, 'width' | 'height'>): { width: number; height: number } {
+    return {
+      width: piece.width * CELL_SIZE - 8,
+      height: piece.height * CELL_SIZE - 8,
+    };
+  }
+
+  private writePieceToGrid(piece: Pick<PieceView, 'id' | 'row' | 'col' | 'width' | 'height'>): void {
+    for (let row = piece.row; row < piece.row + piece.height; row += 1) {
+      for (let col = piece.col; col < piece.col + piece.width; col += 1) {
+        this.pieceGrid[row][col] = piece.id;
+      }
+    }
+  }
+
+  private clearPieceFromGrid(piece: Pick<PieceView, 'row' | 'col' | 'width' | 'height'>): void {
+    for (let row = piece.row; row < piece.row + piece.height; row += 1) {
+      for (let col = piece.col; col < piece.col + piece.width; col += 1) {
+        this.pieceGrid[row][col] = null;
+      }
+    }
+  }
+
+  private getMovedPiecePosition(
+    piece: Pick<PieceView, 'row' | 'col'>,
+    direction: ShiftDirection,
+  ): { row: number; col: number } | null {
+    if (direction === 'left') {
+      return { row: piece.row, col: piece.col - 1 };
+    }
+
+    if (direction === 'right') {
+      return { row: piece.row, col: piece.col + 1 };
+    }
+
+    if (direction === 'up') {
+      return { row: piece.row - 1, col: piece.col };
+    }
+
+    return { row: piece.row + 1, col: piece.col };
+  }
+
+  private canMovePiece(piece: PieceView, nextRow: number, nextCol: number): boolean {
+    if (nextRow < 0 || nextCol < 0 || nextRow + piece.height > GRID_ROWS || nextCol + piece.width > GRID_COLS) {
+      return false;
+    }
+
+    for (let row = nextRow; row < nextRow + piece.height; row += 1) {
+      for (let col = nextCol; col < nextCol + piece.width; col += 1) {
+        const occupant = this.pieceGrid[row][col];
+        if (occupant !== null && occupant !== piece.id) {
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 
   private getConveyorPoint(position: GridPosition): Phaser.Math.Vector2 {
@@ -1106,10 +1189,6 @@ export class GameScene extends Phaser.Scene {
       left,
       Phaser.Math.Linear(top, bottom, position.row / (GRID_ROWS - 1)),
     );
-  }
-
-  private crateKey(row: number, col: number): string {
-    return `${row}:${col}`;
   }
 
   private spawnImpact(x: number, y: number, color: number): void {

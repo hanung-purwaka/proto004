@@ -11,6 +11,7 @@ export interface LevelDefinition {
   id: number;
   name: string;
   board: GridState;
+  pieces: PieceDefinition[];
   queue: ColorKey[];
   conveyorSpeed: number;
   spawnIntervalMs: number;
@@ -18,6 +19,15 @@ export interface LevelDefinition {
   maxActiveBalls: number;
   starThresholds: StarThresholds;
   onboarding?: string[];
+}
+
+export interface PieceDefinition {
+  id: string;
+  color: ColorKey;
+  row: number;
+  col: number;
+  width: number;
+  height: number;
 }
 
 export interface ColorDefinition {
@@ -46,6 +56,13 @@ export const GRID_ROWS = 8;
 export const GRID_COLS = 8;
 export const LEVEL_STORAGE_KEY = 'conveyor-color-puzzle-level';
 
+interface MergeRect {
+  row: number;
+  col: number;
+  width: number;
+  height: number;
+}
+
 const SYMBOL_TO_COLOR: Record<string, ColorKey> = {
   R: 'coral',
   B: 'cyan',
@@ -65,43 +82,62 @@ const parseCell = (cell: string): GridCell => SYMBOL_TO_COLOR[cell] ?? null;
 const makeGrid = (rows: string[]): GridState =>
   rows.map((row) => row.split('').map((cell) => parseCell(cell)));
 
-const makeLayerQueueFromGrid = (grid: GridState): ColorKey[] => {
+const makePieceGrid = (pieces: PieceDefinition[]): Array<Array<string | null>> => {
+  const pieceGrid = Array.from({ length: GRID_ROWS }, () => Array<string | null>(GRID_COLS).fill(null));
+
+  pieces.forEach((piece) => {
+    for (let row = piece.row; row < piece.row + piece.height; row += 1) {
+      for (let col = piece.col; col < piece.col + piece.width; col += 1) {
+        pieceGrid[row][col] = piece.id;
+      }
+    }
+  });
+
+  return pieceGrid;
+};
+
+const makeLayerQueueFromPieces = (grid: GridState, pieces: PieceDefinition[]): ColorKey[] => {
   const queue: ColorKey[] = [];
+  const pieceGrid = makePieceGrid(pieces);
+  const pieceMap = new Map(pieces.map((piece) => [piece.id, piece]));
+  const queued = new Set<string>();
 
   const collectLayer = (top: number, left: number, bottom: number, right: number): void => {
     if (top > bottom || left > right) {
       return;
     }
 
-    for (let col = left; col <= right; col += 1) {
-      const cell = grid[top][col];
-      if (cell !== null) {
-        queue.push(cell);
+    const collectCell = (row: number, col: number): void => {
+      if (grid[row][col] === null) {
+        return;
       }
+
+      const pieceId = pieceGrid[row][col];
+      if (!pieceId || queued.has(pieceId)) {
+        return;
+      }
+
+      queued.add(pieceId);
+      queue.push(pieceMap.get(pieceId)!.color);
+    };
+
+    for (let col = left; col <= right; col += 1) {
+      collectCell(top, col);
     }
 
     for (let row = top + 1; row <= bottom; row += 1) {
-      const cell = grid[row][right];
-      if (cell !== null) {
-        queue.push(cell);
-      }
+      collectCell(row, right);
     }
 
     if (bottom > top) {
       for (let col = right - 1; col >= left; col -= 1) {
-        const cell = grid[bottom][col];
-        if (cell !== null) {
-          queue.push(cell);
-        }
+        collectCell(bottom, col);
       }
     }
 
     if (right > left) {
       for (let row = bottom - 1; row > top; row -= 1) {
-        const cell = grid[row][left];
-        if (cell !== null) {
-          queue.push(cell);
-        }
+        collectCell(row, left);
       }
     }
 
@@ -111,6 +147,10 @@ const makeLayerQueueFromGrid = (grid: GridState): ColorKey[] => {
   collectLayer(0, 0, grid.length - 1, grid[0].length - 1);
 
   return queue;
+};
+
+const countPieceColors = (pieces: PieceDefinition[]): Record<ColorKey, number> => {
+  return countColors(pieces.map((piece) => piece.color));
 };
 
 const countColors = (cells: Array<ColorKey | null>): Record<ColorKey, number> => {
@@ -125,13 +165,13 @@ const countColors = (cells: Array<ColorKey | null>): Record<ColorKey, number> =>
   return counts;
 };
 
-const validateBoardAndQueue = (board: GridState, queue: ColorKey[]): void => {
-  const boardCounts = countColors(board.flat());
+const validatePiecesAndQueue = (pieces: PieceDefinition[], queue: ColorKey[]): void => {
+  const pieceCounts = countPieceColors(pieces);
   const queueCounts = countColors(queue);
 
-  const mismatch = COLOR_ORDER.some((color) => boardCounts[color] !== queueCounts[color]);
-  if (mismatch || queue.length !== board.flat().filter((cell) => cell !== null).length) {
-    throw new Error('Level queue must match board crate counts exactly.');
+  const mismatch = COLOR_ORDER.some((color) => pieceCounts[color] !== queueCounts[color]);
+  if (mismatch || queue.length !== pieces.length) {
+    throw new Error('Level queue must match piece counts exactly.');
   }
 };
 
@@ -155,18 +195,157 @@ const expandPaletteRows = (rows: string[], paletteSeed: number): string[] =>
       .join(''),
   );
 
-const createLayout = (rows: string[], paletteSeed: number) => {
-  const expandedRows = expandPaletteRows(rows, paletteSeed);
-  const board = makeGrid(expandedRows);
-  const queue = makeLayerQueueFromGrid(board);
+const applyMergeRects = (grid: GridState, mergeRects: MergeRect[]): GridState => {
+  const next = grid.map((row) => [...row]);
 
-  validateBoardAndQueue(board, queue);
+  mergeRects.forEach((rect) => {
+    const color = next[rect.row]?.[rect.col];
+    if (color === null || color === undefined) {
+      return;
+    }
+
+    for (let row = rect.row; row < rect.row + rect.height; row += 1) {
+      for (let col = rect.col; col < rect.col + rect.width; col += 1) {
+        if (row >= 0 && row < GRID_ROWS && col >= 0 && col < GRID_COLS) {
+          next[row][col] = color;
+        }
+      }
+    }
+  });
+
+  return next;
+};
+
+const makePieces = (grid: GridState, mergeRects: MergeRect[]): PieceDefinition[] => {
+  const claimed = Array.from({ length: GRID_ROWS }, () => Array<boolean>(GRID_COLS).fill(false));
+  const pieces: PieceDefinition[] = [];
+  let pieceIndex = 0;
+
+  mergeRects
+    .slice()
+    .sort((a, b) => b.width * b.height - a.width * a.height)
+    .forEach((rect) => {
+      const color = grid[rect.row]?.[rect.col];
+      if (color === null || color === undefined) {
+        return;
+      }
+
+      const cells: Array<{ row: number; col: number }> = [];
+
+      for (let row = rect.row; row < rect.row + rect.height; row += 1) {
+        for (let col = rect.col; col < rect.col + rect.width; col += 1) {
+          if (row >= GRID_ROWS || col >= GRID_COLS || grid[row][col] !== color || claimed[row][col]) {
+            return;
+          }
+
+          cells.push({ row, col });
+        }
+      }
+
+      cells.forEach(({ row, col }) => {
+        claimed[row][col] = true;
+      });
+
+      pieces.push({
+        id: `piece-${pieceIndex += 1}`,
+        color,
+        row: rect.row,
+        col: rect.col,
+        width: rect.width,
+        height: rect.height,
+      });
+    });
+
+  for (let row = 0; row < GRID_ROWS; row += 1) {
+    for (let col = 0; col < GRID_COLS; col += 1) {
+      const color = grid[row][col];
+      if (color === null || claimed[row][col]) {
+        continue;
+      }
+
+      claimed[row][col] = true;
+      pieces.push({
+        id: `piece-${pieceIndex += 1}`,
+        color,
+        row,
+        col,
+        width: 1,
+        height: 1,
+      });
+    }
+  }
+
+  return pieces;
+};
+
+const createLayout = (rows: string[], paletteSeed: number, mergeRects: MergeRect[]) => {
+  const expandedRows = expandPaletteRows(rows, paletteSeed);
+  const baseBoard = makeGrid(expandedRows);
+  const board = applyMergeRects(baseBoard, mergeRects);
+  const pieces = makePieces(board, mergeRects);
+  const queue = makeLayerQueueFromPieces(board, pieces);
+
+  validatePiecesAndQueue(pieces, queue);
 
   return {
     board,
+    pieces,
     queue,
   };
 };
+
+const LEVEL_MERGES: MergeRect[][] = [
+  [
+    { row: 0, col: 0, width: 1, height: 2 },
+    { row: 1, col: 3, width: 2, height: 2 },
+    { row: 4, col: 5, width: 1, height: 3 },
+  ],
+  [
+    { row: 0, col: 5, width: 1, height: 3 },
+    { row: 2, col: 1, width: 2, height: 2 },
+    { row: 5, col: 4, width: 3, height: 1 },
+  ],
+  [
+    { row: 0, col: 2, width: 3, height: 1 },
+    { row: 2, col: 5, width: 2, height: 2 },
+    { row: 5, col: 0, width: 1, height: 3 },
+  ],
+  [
+    { row: 1, col: 1, width: 2, height: 2 },
+    { row: 0, col: 5, width: 3, height: 1 },
+    { row: 4, col: 3, width: 1, height: 3 },
+  ],
+  [
+    { row: 0, col: 0, width: 3, height: 3 },
+    { row: 4, col: 5, width: 2, height: 2 },
+    { row: 6, col: 2, width: 3, height: 1 },
+  ],
+  [
+    { row: 0, col: 6, width: 1, height: 2 },
+    { row: 2, col: 2, width: 2, height: 2 },
+    { row: 5, col: 4, width: 1, height: 3 },
+  ],
+  [
+    { row: 1, col: 0, width: 3, height: 1 },
+    { row: 3, col: 4, width: 2, height: 2 },
+    { row: 5, col: 1, width: 1, height: 3 },
+  ],
+  [
+    { row: 0, col: 4, width: 1, height: 3 },
+    { row: 3, col: 0, width: 2, height: 2 },
+    { row: 5, col: 4, width: 3, height: 1 },
+  ],
+  [
+    { row: 0, col: 1, width: 2, height: 2 },
+    { row: 2, col: 5, width: 1, height: 3 },
+    { row: 6, col: 3, width: 2, height: 2 },
+  ],
+  [
+    { row: 0, col: 0, width: 3, height: 1 },
+    { row: 2, col: 2, width: 2, height: 2 },
+    { row: 4, col: 4, width: 3, height: 3 },
+  ],
+];
 
 export const levels: LevelDefinition[] = [
   {
@@ -181,7 +360,7 @@ export const levels: LevelDefinition[] = [
       'RBYGPRBY',
       'BYGPRBYG',
       'YGPRBYGP',
-    ], 1),
+    ], 1, LEVEL_MERGES[0]),
     conveyorSpeed: 2.05,
     spawnIntervalMs: 2200,
     maxLoopsPerBall: 6,
@@ -201,7 +380,7 @@ export const levels: LevelDefinition[] = [
       'GYPRBYGP',
       'PRBYGYPR',
       'BYGPRBYG',
-    ], 2),
+    ], 2, LEVEL_MERGES[1]),
     conveyorSpeed: 2.15,
     spawnIntervalMs: 2100,
     maxLoopsPerBall: 6,
@@ -221,7 +400,7 @@ export const levels: LevelDefinition[] = [
       'RBYGPRBY',
       'YGPRBYGP',
       'PRBYGPRB',
-    ], 3),
+    ], 3, LEVEL_MERGES[2]),
     conveyorSpeed: 2.15,
     spawnIntervalMs: 2100,
     maxLoopsPerBall: 6,
@@ -241,7 +420,7 @@ export const levels: LevelDefinition[] = [
       'RPGYBRPG',
       'BYRGPBYR',
       'GYBPRGYB',
-    ], 4),
+    ], 4, LEVEL_MERGES[3]),
     conveyorSpeed: 2.35,
     spawnIntervalMs: 1800,
     maxLoopsPerBall: 6,
@@ -260,7 +439,7 @@ export const levels: LevelDefinition[] = [
       'RGYPBRGY',
       'YPRBGYPR',
       'BRGYPRBG',
-    ], 5),
+    ], 5, LEVEL_MERGES[4]),
     conveyorSpeed: 2.25,
     spawnIntervalMs: 1900,
     maxLoopsPerBall: 6,
@@ -279,7 +458,7 @@ export const levels: LevelDefinition[] = [
       'RGBYPRGB',
       'BYGPRBYG',
       'GPRYGGPR',
-    ], 6),
+    ], 6, LEVEL_MERGES[5]),
     conveyorSpeed: 2.3,
     spawnIntervalMs: 1900,
     maxLoopsPerBall: 6,
@@ -298,7 +477,7 @@ export const levels: LevelDefinition[] = [
       'RPGYBRPG',
       'GYBRPGYB',
       'BYPGYBYP',
-    ], 7),
+    ], 7, LEVEL_MERGES[6]),
     conveyorSpeed: 2.45,
     spawnIntervalMs: 1750,
     maxLoopsPerBall: 6,
@@ -317,7 +496,7 @@ export const levels: LevelDefinition[] = [
       'GPYRBGPY',
       'RBGYPRBG',
       'YPRGBYPR',
-    ], 8),
+    ], 8, LEVEL_MERGES[7]),
     conveyorSpeed: 2.55,
     spawnIntervalMs: 1750,
     maxLoopsPerBall: 7,
@@ -336,7 +515,7 @@ export const levels: LevelDefinition[] = [
       'PRGYBPRG',
       'BYPRGBYP',
       'GPYRBGPY',
-    ], 9),
+    ], 9, LEVEL_MERGES[8]),
     conveyorSpeed: 2.65,
     spawnIntervalMs: 1650,
     maxLoopsPerBall: 7,
@@ -355,7 +534,7 @@ export const levels: LevelDefinition[] = [
       'RPGYBRPG',
       'YBGPRYBG',
       'GRPBYGRP',
-    ], 10),
+    ], 10, LEVEL_MERGES[9]),
     conveyorSpeed: 2.8,
     spawnIntervalMs: 1550,
     maxLoopsPerBall: 7,
