@@ -112,8 +112,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   init(data?: { levelIndex?: number }): void {
-    if (typeof data?.levelIndex === 'number') {
+    if (typeof data?.levelIndex === 'number' && Number.isFinite(data.levelIndex)) {
       this.currentLevelIndex = Phaser.Math.Clamp(data.levelIndex, 0, levels.length - 1);
+    } else {
+      this.currentLevelIndex = 0;
     }
   }
 

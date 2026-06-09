@@ -508,6 +508,8 @@ export const levels: LevelDefinition[] = [
 ];
 
 export const clampLevelIndex = (index: number): number =>
-  Math.max(0, Math.min(levels.length - 1, Math.floor(index)));
+  Number.isFinite(index)
+    ? Math.max(0, Math.min(levels.length - 1, Math.floor(index)))
+    : 0;
 
 export const cloneGrid = (grid: GridState): GridState => grid.map((row) => [...row]);

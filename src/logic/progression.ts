@@ -12,7 +12,13 @@ export const getSavedLevelIndex = (): number => {
     return 0;
   }
 
-  return clampLevelIndex(Number(rawValue));
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed)) {
+    window.localStorage.removeItem(LEVEL_STORAGE_KEY);
+    return 0;
+  }
+
+  return clampLevelIndex(parsed);
 };
 
 export const saveLevelIndex = (levelIndex: number): void => {
