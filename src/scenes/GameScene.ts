@@ -70,6 +70,7 @@ const BUTTON_HEIGHT = 54;
 const SPEED_OPTIONS = [1, 1.5, 2, 3];
 const CONVEYOR_ENTRY_INDEX = Math.floor(GRID_COLS / 2);
 const MIN_CONVEYOR_GAP = 0.92;
+const MATCH_PROGRESS_THRESHOLD = 0.72;
 const BOTTOM_PANEL_Y = 894;
 const BOTTOM_BUTTON_Y = 892;
 const CRATE_MOVE_DURATION_MS = 110;
@@ -785,34 +786,27 @@ export class GameScene extends Phaser.Scene {
       ball.sprite.rotation += (ball.progress - previous) * 0.18;
 
       const slotIndex = Math.floor(ball.progress + 0.5) % pathLength;
-      if (slotIndex !== ball.lastSlotIndex) {
-        ball.lastSlotIndex = slotIndex;
-        this.tryMatchBall(ball, slotIndex);
-      }
+      ball.lastSlotIndex = slotIndex;
+      this.tryMatchBall(ball);
     }
 
     this.updateJamState();
   }
 
-  private tryMatchBall(ball: ConveyorBall, slotIndex: number): void {
-    const target = this.perimeterCells[slotIndex];
-    const pieceId = this.pieceGrid[target.row][target.col];
-    if (!pieceId) {
+  private tryMatchBall(ball: ConveyorBall): void {
+    const target = this.findMatchTarget(ball);
+    if (!target) {
       return;
     }
 
-    const piece = this.pieces.get(pieceId);
-    const cellColor = this.grid[target.row][target.col];
-    if (!piece || cellColor !== ball.color) {
-      return;
-    }
+    const { piece, targetCell } = target;
 
     ball.matching = true;
     this.busy = true;
 
     const startX = ball.sprite.x;
     const startY = ball.sprite.y;
-    const end = this.getPieceCenter(piece);
+    const end = this.getCellCenter(targetCell.row, targetCell.col);
     const travel = { value: 0 };
 
     this.tweens.addCounter({
@@ -889,6 +883,41 @@ export class GameScene extends Phaser.Scene {
         this.completeLevel(false);
       }
     });
+  }
+
+  private findMatchTarget(ball: ConveyorBall): { piece: PieceView; targetCell: PieceCell } | null {
+    const pathLength = this.perimeterCells.length;
+    let bestTarget: { piece: PieceView; targetCell: PieceCell; distance: number } | null = null;
+
+    this.perimeterCells.forEach((cell, slotIndex) => {
+      const pieceId = this.pieceGrid[cell.row][cell.col];
+      if (!pieceId) {
+        return;
+      }
+
+      const piece = this.pieces.get(pieceId);
+      const cellColor = this.grid[cell.row][cell.col];
+      if (!piece || cellColor !== ball.color) {
+        return;
+      }
+
+      const rawDistance = Math.abs(ball.progress - slotIndex);
+      const wrappedDistance = Math.min(rawDistance, pathLength - rawDistance);
+      if (wrappedDistance > MATCH_PROGRESS_THRESHOLD) {
+        return;
+      }
+
+      const targetCell = piece.cells.find((pieceCell) => pieceCell.row === cell.row && pieceCell.col === cell.col);
+      if (!targetCell) {
+        return;
+      }
+
+      if (!bestTarget || wrappedDistance < bestTarget.distance) {
+        bestTarget = { piece, targetCell, distance: wrappedDistance };
+      }
+    });
+
+    return bestTarget ? { piece: bestTarget.piece, targetCell: bestTarget.targetCell } : null;
   }
 
   private tryMove(pieceId: string, direction: ShiftDirection, fromX?: number, fromY?: number): void {
