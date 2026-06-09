@@ -28,6 +28,7 @@ interface PieceView {
   id: string;
   cells: PieceCell[];
   container: Phaser.GameObjects.Container;
+  markers: Map<string, Phaser.GameObjects.Arc>;
 }
 
 interface ConveyorBall {
@@ -57,6 +58,7 @@ const BUTTON_WIDTH = 180;
 const BUTTON_HEIGHT = 54;
 const SPEED_OPTIONS = [1, 1.5, 2, 3];
 const CONVEYOR_ENTRY_INDEX = Math.floor(GRID_COLS / 2);
+const MIN_CONVEYOR_GAP = 0.92;
 const BOTTOM_PANEL_Y = 894;
 const BOTTOM_BUTTON_Y = 892;
 const CRATE_MOVE_DURATION_MS = 110;
@@ -230,7 +232,8 @@ export class GameScene extends Phaser.Scene {
     track.strokePoints(this.conveyorPoints, true);
 
     this.conveyorPoints.forEach((point) => {
-      this.add.circle(point.x, point.y, 7, 0x223744, 1).setStrokeStyle(2, 0x537d98, 0.6);
+      this.add.circle(point.x, point.y, 12, 0x1a2b37, 1).setStrokeStyle(2, 0x4f7087, 0.85);
+      this.add.circle(point.x, point.y, 7, 0x0e1821, 1).setStrokeStyle(1, 0x8bc8ea, 0.18);
     });
 
     this.beltMarkers = [];
@@ -475,6 +478,7 @@ export class GameScene extends Phaser.Scene {
     const shell = this.add.graphics();
     const accents = this.add.graphics();
     const outline = this.add.graphics();
+    const markers = new Map<string, Phaser.GameObjects.Arc>();
     const cellKeySet = new Set(cells.map((cell) => `${cell.row}:${cell.col}`));
     const primaryPalette = COLORS[cells[0].color];
 
@@ -492,9 +496,6 @@ export class GameScene extends Phaser.Scene {
       shell.fillRoundedRect(local.x + 4, local.y + 4, local.width - 8, local.height - 8, 10);
       shell.fillStyle(palette.light, 0.22);
       shell.fillRoundedRect(local.x + 10, local.y + 8, Math.max(16, local.width - 20), 8, 4);
-
-      accents.fillStyle(palette.glow, 0.22);
-      accents.fillCircle(local.x + local.width / 2, local.y + local.height / 2, Math.max(6, Math.min(local.width, local.height) * 0.12));
     });
 
     if (cells.length > 1) {
@@ -525,7 +526,23 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    const container = this.add.container(center.x, center.y, [shadow, body, shell, accents, outline]);
+    const markerObjects = cells.map((cell) => {
+      const local = this.getLocalCellRect(cell, bounds);
+      const marker = this.add.circle(
+        local.x + local.width / 2,
+        local.y + local.height / 2,
+        Math.max(5, Math.min(local.width, local.height) * 0.16),
+        0x091018,
+        0.9,
+      ).setStrokeStyle(2, 0xffffff, 0.08);
+
+      accents.fillStyle(COLORS[cell.color].glow, 0.14);
+      accents.fillCircle(local.x + local.width / 2, local.y + local.height / 2, Math.max(8, Math.min(local.width, local.height) * 0.2));
+      markers.set(`${cell.row}:${cell.col}`, marker);
+      return marker;
+    });
+
+    const container = this.add.container(center.x, center.y, [shadow, body, shell, accents, outline, ...markerObjects]);
     container.setDepth(5);
     container.setSize(size.width, size.height);
     const hitCells = cells.map((cell) => this.getLocalCellRect(cell, bounds));
@@ -555,6 +572,7 @@ export class GameScene extends Phaser.Scene {
       id: piece.id,
       cells,
       container,
+      markers,
     };
   }
 
@@ -572,7 +590,7 @@ export class GameScene extends Phaser.Scene {
           return;
         }
 
-        if (this.getOccupiedSlotCount() >= this.perimeterCells.length) {
+        if (this.getOccupiedSlotCount() >= this.perimeterCells.length || !this.isConveyorSlotOpen(CONVEYOR_ENTRY_INDEX)) {
           return;
         }
 
@@ -653,6 +671,33 @@ export class GameScene extends Phaser.Scene {
 
     const speed = this.currentLevel.conveyorSpeed * this.speedMultiplier;
     const pathLength = this.perimeterCells.length;
+    const movingBalls = this.conveyorBalls.filter((ball) => !ball.matching).sort((a, b) => a.progress - b.progress);
+    const nextProgressById = new Map<number, number>();
+    const step = speed * delta * 0.001;
+
+    for (let index = movingBalls.length - 1; index >= 0; index -= 1) {
+      const ball = movingBalls[index];
+      const ahead = movingBalls[(index + 1) % movingBalls.length];
+      const desiredProgress = ball.progress + step;
+
+      let resolvedProgress = desiredProgress;
+      if (movingBalls.length > 1) {
+        const aheadProgress = nextProgressById.get(ahead.id) ?? ahead.progress;
+        const aheadWrapped = aheadProgress <= ball.progress ? aheadProgress + pathLength : aheadProgress;
+        resolvedProgress = Math.min(desiredProgress, aheadWrapped - MIN_CONVEYOR_GAP);
+      }
+
+      if (resolvedProgress < ball.progress) {
+        resolvedProgress = ball.progress;
+      }
+
+      if (resolvedProgress >= pathLength) {
+        resolvedProgress -= pathLength;
+        ball.loops += 1;
+      }
+
+      nextProgressById.set(ball.id, resolvedProgress);
+    }
 
     for (let index = this.conveyorBalls.length - 1; index >= 0; index -= 1) {
       const ball = this.conveyorBalls[index];
@@ -661,11 +706,9 @@ export class GameScene extends Phaser.Scene {
       }
 
       const previous = ball.progress;
-      ball.progress += speed * delta * 0.001;
-
-      if (ball.progress >= pathLength) {
-        ball.progress -= pathLength;
-        ball.loops += 1;
+      const nextProgress = nextProgressById.get(ball.id);
+      if (typeof nextProgress === 'number') {
+        ball.progress = nextProgress;
       }
 
       const point = this.samplePath(ball.progress);
@@ -734,6 +777,18 @@ export class GameScene extends Phaser.Scene {
     if (!matchedCell) {
       this.busy = false;
       return;
+    }
+
+    const matchedMarker = piece.markers.get(`${matchedCell.row}:${matchedCell.col}`);
+    matchedMarker?.setStrokeStyle(0);
+    if (matchedMarker) {
+      this.tweens.add({
+        targets: matchedMarker,
+        scaleX: 0.2,
+        scaleY: 0.2,
+        alpha: 0,
+        duration: 120,
+      });
     }
 
     this.grid[matchedCell.row][matchedCell.col] = null;
@@ -902,6 +957,20 @@ export class GameScene extends Phaser.Scene {
     });
 
     return occupiedSlots.size;
+  }
+
+  private isConveyorSlotOpen(slotIndex: number): boolean {
+    const pathLength = this.perimeterCells.length;
+
+    return this.conveyorBalls.every((ball) => {
+      if (ball.matching) {
+        return true;
+      }
+
+      const difference = Math.abs(ball.progress - slotIndex);
+      const wrappedDifference = Math.min(difference, pathLength - difference);
+      return wrappedDifference >= MIN_CONVEYOR_GAP;
+    });
   }
 
   private updateJamState(): void {
