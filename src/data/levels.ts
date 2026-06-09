@@ -111,6 +111,57 @@ const getPerimeterOrder = (rows: number, cols: number): Array<{ row: number; col
   return order;
 };
 
+const getExposedCells = (board: GridState): Array<{ row: number; col: number }> => {
+  const order = getPerimeterOrder(board.length, board[0].length);
+  const exposed: Array<{ row: number; col: number }> = [];
+  const seen = new Set<string>();
+
+  for (let row = 0; row < board.length; row += 1) {
+    for (let col = 0; col < board[row].length; col += 1) {
+      if (board[row][col] === null) {
+        continue;
+      }
+
+      const key = `${row}:${col}`;
+      const touchesVoid = (
+        row === 0
+        || col === 0
+        || row === board.length - 1
+        || col === board[row].length - 1
+        || board[row - 1]?.[col] === null
+        || board[row + 1]?.[col] === null
+        || board[row]?.[col - 1] === null
+        || board[row]?.[col + 1] === null
+      );
+
+      if (touchesVoid && !seen.has(key)) {
+        seen.add(key);
+        exposed.push({ row, col });
+      }
+    }
+  }
+
+  exposed.sort((a, b) => {
+    const aIndex = order.findIndex((slot) => slot.row === a.row && slot.col === a.col);
+    const bIndex = order.findIndex((slot) => slot.row === b.row && slot.col === b.col);
+
+    const aScore = aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex;
+    const bScore = bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex;
+
+    if (aScore !== bScore) {
+      return aScore - bScore;
+    }
+
+    if (a.row !== b.row) {
+      return a.row - b.row;
+    }
+
+    return a.col - b.col;
+  });
+
+  return exposed;
+};
+
 const getConnectedComponents = (
   cells: Array<{ row: number; col: number; color: ColorKey }>,
 ): Array<Array<{ row: number; col: number; color: ColorKey }>> => {
@@ -165,13 +216,12 @@ const makePlayableQueue = (grid: GridState, pieces: PieceDefinition[]): ColorKey
     cells: piece.cells.map((cell) => ({ ...cell })),
   }));
   let splitCounter = 0;
-  const perimeter = getPerimeterOrder(grid.length, grid[0].length);
-
   while (activePieces.length > 0) {
     const pieceGrid = makePieceGrid(activePieces);
     let matched = false;
+    const exposedCells = getExposedCells(board);
 
-    for (const slot of perimeter) {
+    for (const slot of exposedCells) {
       const color = board[slot.row][slot.col];
       if (color === null) {
         continue;
