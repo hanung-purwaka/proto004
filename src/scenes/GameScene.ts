@@ -1055,13 +1055,14 @@ export class GameScene extends Phaser.Scene {
       fontStyle: 'bold',
       color: '#f8fbff',
     }).setOrigin(0.5);
-    const hitArea = this.add.zone(0, 0, BUTTON_WIDTH, BUTTON_HEIGHT);
-    hitArea.setRectangleDropZone(BUTTON_WIDTH, BUTTON_HEIGHT);
-    hitArea.setInteractive({ useHandCursor: true });
-
-    const button = this.add.container(x, y, [hitArea, image, text]);
+    const button = this.add.container(x, y, [image, text]);
     button.setSize(BUTTON_WIDTH, BUTTON_HEIGHT);
+    button.setDepth(30);
     button.setData('label', text);
+
+    const hitArea = this.add.rectangle(x, y, BUTTON_WIDTH, BUTTON_HEIGHT, 0xffffff, 0.001);
+    hitArea.setInteractive({ useHandCursor: true });
+    hitArea.setDepth(31);
 
     hitArea.on('pointerover', () => button.setScale(1.03));
     hitArea.on('pointerout', () => button.setScale(1));
@@ -1074,6 +1075,7 @@ export class GameScene extends Phaser.Scene {
       action();
     });
     hitArea.on('pointerupoutside', () => button.setScale(1));
+    button.once(Phaser.GameObjects.Events.DESTROY, () => hitArea.destroy());
 
     return button;
   }

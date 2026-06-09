@@ -103,12 +103,13 @@ export class MenuScene extends Phaser.Scene {
       fontStyle: 'bold',
       color: '#f7fbff',
     }).setOrigin(0.5);
-    const hitArea = this.add.zone(0, 0, BUTTON_WIDTH, BUTTON_HEIGHT);
-    hitArea.setRectangleDropZone(BUTTON_WIDTH, BUTTON_HEIGHT);
-    hitArea.setInteractive({ useHandCursor: true });
-
-    const container = this.add.container(x, y, [hitArea, image, text]);
+    const container = this.add.container(x, y, [image, text]);
     container.setSize(BUTTON_WIDTH, BUTTON_HEIGHT);
+    container.setDepth(3);
+
+    const hitArea = this.add.rectangle(x, y, BUTTON_WIDTH, BUTTON_HEIGHT, 0xffffff, 0.001);
+    hitArea.setInteractive({ useHandCursor: true });
+    hitArea.setDepth(4);
 
     hitArea.on('pointerover', () => container.setScale(1.03));
     hitArea.on('pointerout', () => container.setScale(1));
@@ -118,6 +119,7 @@ export class MenuScene extends Phaser.Scene {
       action();
     });
     hitArea.on('pointerupoutside', () => container.setScale(1));
+    container.once(Phaser.GameObjects.Events.DESTROY, () => hitArea.destroy());
 
     return container;
   }
