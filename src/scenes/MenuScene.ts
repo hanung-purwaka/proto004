@@ -103,26 +103,19 @@ export class MenuScene extends Phaser.Scene {
       fontStyle: 'bold',
       color: '#f7fbff',
     }).setOrigin(0.5);
+    const hitArea = this.add.rectangle(0, 0, BUTTON_WIDTH, BUTTON_HEIGHT, 0xffffff, 0.001);
+    hitArea.setInteractive({ useHandCursor: true });
 
-    const container = this.add.container(x, y, [image, text]);
+    const container = this.add.container(x, y, [hitArea, image, text]);
     container.setSize(BUTTON_WIDTH, BUTTON_HEIGHT);
-    container.setInteractive(
-      new Phaser.Geom.Rectangle(
-        -BUTTON_WIDTH / 2,
-        -BUTTON_HEIGHT / 2,
-        BUTTON_WIDTH,
-        BUTTON_HEIGHT,
-      ),
-      Phaser.Geom.Rectangle.Contains,
-    );
 
-    container.on('pointerover', () => container.setScale(1.03));
-    container.on('pointerout', () => container.setScale(1));
-    container.on('pointerdown', () => {
+    hitArea.on('pointerover', () => container.setScale(1.03));
+    hitArea.on('pointerout', () => container.setScale(1));
+    hitArea.on('pointerdown', () => {
       container.setScale(0.98);
       action();
     });
-    container.on('pointerup', () => container.setScale(1.03));
+    hitArea.on('pointerup', () => container.setScale(1.03));
 
     return container;
   }

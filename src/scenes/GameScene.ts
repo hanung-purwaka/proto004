@@ -1055,24 +1055,17 @@ export class GameScene extends Phaser.Scene {
       fontStyle: 'bold',
       color: '#f8fbff',
     }).setOrigin(0.5);
+    const hitArea = this.add.rectangle(0, 0, BUTTON_WIDTH, BUTTON_HEIGHT, 0xffffff, 0.001);
+    hitArea.setInteractive({ useHandCursor: true });
 
-    const button = this.add.container(x, y, [image, text]);
+    const button = this.add.container(x, y, [hitArea, image, text]);
     button.setSize(BUTTON_WIDTH, BUTTON_HEIGHT);
-    button.setInteractive(
-      new Phaser.Geom.Rectangle(
-        -BUTTON_WIDTH / 2,
-        -BUTTON_HEIGHT / 2,
-        BUTTON_WIDTH,
-        BUTTON_HEIGHT,
-      ),
-      Phaser.Geom.Rectangle.Contains,
-    );
     button.setData('label', text);
 
-    button.on('pointerover', () => button.setScale(1.03));
-    button.on('pointerout', () => button.setScale(1));
-    button.on('pointerdown', () => button.setScale(0.98));
-    button.on('pointerup', () => {
+    hitArea.on('pointerover', () => button.setScale(1.03));
+    hitArea.on('pointerout', () => button.setScale(1));
+    hitArea.on('pointerdown', () => button.setScale(0.98));
+    hitArea.on('pointerup', () => {
       button.setScale(1.03);
       if (modal) {
         this.hideModal();
